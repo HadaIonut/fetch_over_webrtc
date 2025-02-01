@@ -59,15 +59,16 @@ pub fn room_encoder(room: Room) {
     #("room_id", json.string(room.room_id)),
     #("members", json.array(room.members, of: user_encoder)),
   ])
-  |> json.to_string()
 }
 
 fn user_encoder(user: User) {
   json.object([#("id", json.string(user.id))])
 }
 
-pub fn notify_connections(users: List(User), msg) {
-  list.map(users, fn(usr) {
+pub fn notify_connections(users: List(User), filter_user_id, msg) {
+  list.each(users, fn(usr) {
+    use <- bool.guard(usr.id == filter_user_id, Nil)
+
     process.send(usr.connection, server_state.SendNotifications(msg))
   })
 }
@@ -108,7 +109,12 @@ fn handle_room_join(rooms, user: User, room_id, subject) {
         })
       let assert Ok(room) = dict.get(rooms, room_id)
 
-      room |> room_encoder() |> notify_connections(room.members, _)
+      json.object([
+        #("type", json.string("userJoined")),
+        #("room", room_encoder(room)),
+      ])
+      |> json.to_string()
+      |> notify_connections(room.members, user.id, _)
 
       process.send(subject, Ok(room))
       rooms
@@ -141,7 +147,10 @@ fn room_leave(rooms: Rooms, room_id, user_id) {
         new_rooms
         |> dict.get(room_id)
 
-      room |> room_encoder() |> notify_connections(room.members, _)
+      room
+      |> room_encoder()
+      |> json.to_string()
+      |> notify_connections(room.members, user_id, _)
 
       #(rooms, Ok(room))
     }
@@ -175,11 +184,11 @@ fn handle_offer(rooms: Rooms, room_id, user_id, sdp_cert) {
   case dict.get(rooms, room_id) {
     Ok(room) -> {
       list.each(room.members, fn(mem) {
-        use <- bool.guard(mem.id != user_id, Nil)
+        use <- bool.guard(mem.id == user_id, Nil)
 
         process.send(
           mem.connection,
-          server_state.SendSdpCert(user_id, sdp_cert),
+          server_state.SendSdpCert(user_id, room_id, sdp_cert),
         )
       })
       Ok(room)
@@ -195,7 +204,7 @@ fn handle_offer_reply(rooms: Rooms, room_id, user_id, to_user_id, sdp_cert) {
         Ok(usr) -> {
           process.send(
             usr.connection,
-            server_state.SendSdpCert(user_id, sdp_cert),
+            server_state.SendSdpCert(user_id, room_id, sdp_cert),
           )
           Ok(room)
         }

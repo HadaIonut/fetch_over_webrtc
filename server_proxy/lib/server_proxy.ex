@@ -1,40 +1,26 @@
-defmodule Messages do
-  defmodule CreateRoom do
-    @derive Jason.Encoder
-    defstruct [:requestId, type: "create"]
-  end
-end
-
-defmodule Negociator do
-  def start_link(state) do
-    Task.start_link(fn -> loop(state) end)
-  end
-
-  defp loop(state) do
-    receive do
-      {:add_pending, request_id, pid} ->
-        Map.put(state, request_id, pid)
-        |> loop()
-
-      {:resolve_request, request_id, value} ->
-        Map.get(state, request_id)
-        |> send({:resolved, value})
-
-        Map.delete(state, request_id) |> loop()
-    end
-  end
-end
-
-defmodule SocketHandler do
+defmodule Server do
   use WebSockex
   require Logger
 
-  def start_link(state) do
-    WebSockex.start_link("ws://localhost:3000/ws", __MODULE__, state)
+  def start() do
+    {:ok, negociator_pid} = Negociator.start_link(%{})
+
+    {:ok, sock_pid} =
+      SocketHandler.start_link(%{negociator_pid: negociator_pid, active_connections: %{}})
+
+    {negociator_pid, sock_pid}
+  end
+
+  def send_create_room_message(sock_pid, negociator_pid) do
+    request_id = UUID.uuid4()
+
+    val = JSON.encode!(%Messages.CreateRoom{requestId: request_id})
+
+    send_message(sock_pid, negociator_pid, request_id, val)
   end
 
   @spec send_message(pid, pid, String.t(), String.t()) :: :ok
-  def send_message(sock_pid, negociator_pid, request_id, message) do
+  defp send_message(sock_pid, negociator_pid, request_id, message) do
     Logger.info("Sending message: #{message}")
     WebSockex.send_frame(sock_pid, {:text, message})
 
@@ -44,43 +30,64 @@ defmodule SocketHandler do
       {:resolved, value} -> IO.inspect(value)
     end
   end
-
-  def handle_connect(_conn, state) do
-    Logger.info("Connected!")
-    {:ok, state}
-  end
-
-  def handle_frame({:text, msg}, state) do
-    Logger.info("Received Message: #{msg}")
-    {:ok, res} = Jason.decode(msg)
-
-    send(
-      state.negociator_pid,
-      {:resolve_request, Map.get(res, "requestId"), res}
-    )
-
-    {:ok, state}
-  end
-
-  def handle_disconnect(%{reason: {:local, reason}}, state) do
-    Logger.info("Local close with reason: #{inspect(reason)}")
-    {:ok, state}
-  end
-
-  def handle_disconnect(disconnect_map, state) do
-    super(disconnect_map, state)
-  end
 end
 
-defmodule Starter do
-  def start() do
+defmodule Client do
+  use WebSockex
+
+  alias ExWebRTC.{
+    DataChannel,
+    ICECandidate,
+    PeerConnection,
+    SessionDescription
+  }
+
+  require Logger
+
+  def start(room) do
     {:ok, negociator_pid} = Negociator.start_link(%{})
     {:ok, sock_pid} = SocketHandler.start_link(%{negociator_pid: negociator_pid})
 
+    send_join_room_message(sock_pid, negociator_pid, room)
+  end
+
+  def send_join_room_message(sock_pid, negociator_pid, room_id) do
     request_id = UUID.uuid4()
 
-    {:ok, val} = Jason.encode(%Messages.CreateRoom{requestId: request_id})
+    val = JSON.encode!(%Messages.JoinRoom{requestId: request_id, roomId: room_id})
 
-    SocketHandler.send_message(sock_pid, negociator_pid, request_id, val)
+    response = send_message(sock_pid, negociator_pid, request_id, val)
+
+    {:ok, pc} =
+      PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
+
+    {:ok, data_channel} = PeerConnection.create_data_channel(pc, "ligma")
+
+    {:ok, offer} = PeerConnection.create_offer(pc)
+    IO.inspect(offer)
+    PeerConnection.set_local_description(pc, offer)
+
+    request_id = UUID.uuid4()
+
+    val =
+      JSON.encode!(%Messages.Offer{
+        requestId: request_id,
+        roomId: room_id,
+        sdpCert: offer |> SessionDescription.to_json() |> JSON.encode!()
+      })
+
+    response = send_message(sock_pid, negociator_pid, request_id, val)
+  end
+
+  @spec send_message(pid, pid, String.t(), String.t()) :: :ok
+  defp send_message(sock_pid, negociator_pid, request_id, message) do
+    Logger.info("Sending message: #{message}")
+    WebSockex.send_frame(sock_pid, {:text, message})
+
+    send(negociator_pid, {:add_pending, request_id, self()})
+
+    receive do
+      {:resolved, value} -> IO.inspect(value)
+    end
   end
 end

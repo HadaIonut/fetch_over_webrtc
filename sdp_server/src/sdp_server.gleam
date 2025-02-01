@@ -5,7 +5,6 @@ import gleam/function
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/int
-import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
@@ -74,10 +73,16 @@ fn handle_ws_message(rooms_actor) {
         let _ = mist.send_text_frame(conn, text)
         actor.continue(state)
       }
-      mist.Custom(server_state.SendSdpCert(source_user_id, sdp_cert)) -> {
+      mist.Custom(server_state.SendSdpCert(
+        source_user_id,
+        source_room_id,
+        sdp_cert,
+      )) -> {
         let _ =
           json.object([
+            #("type", json.string("userOffer")),
             #("sourceUserId", json.string(source_user_id)),
+            #("roomId", json.string(source_room_id)),
             #("sdpCert", json.string(sdp_cert)),
           ])
           |> json.to_string()
@@ -93,9 +98,23 @@ fn handle_ws_message(rooms_actor) {
 fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
   case json.parse(msg, command_decoder.decoder()) {
     Ok(command_decoder.Join(request_id, room_id)) ->
-      handle_ws_join(rooms_actor, room_id, state.user_id, state, conn)
+      handle_ws_join(
+        rooms_actor,
+        room_id,
+        state.user_id,
+        state,
+        conn,
+        request_id,
+      )
     Ok(command_decoder.Leave(request_id, room_id)) ->
-      handle_ws_leave(rooms_actor, room_id, state.user_id, state, conn)
+      handle_ws_leave(
+        rooms_actor,
+        room_id,
+        state.user_id,
+        state,
+        conn,
+        request_id,
+      )
     Ok(command_decoder.Create(request_id)) -> {
       let room =
         process.call(
@@ -116,16 +135,25 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       state
     }
     Ok(command_decoder.Offer(request_id, room_id, sdp_cert)) -> {
-      let _ = case
+      let status = case
         process.call(
           rooms_actor,
           rooms.Offer(state.user_id, room_id, sdp_cert, _),
           10,
         )
       {
-        Ok(_) -> mist.send_text_frame(conn, "good")
-        Error(err) -> mist.send_text_frame(conn, err)
+        Ok(_) -> "good"
+        Error(err) -> err
       }
+
+      let _ =
+        json.object([
+          #("type", json.string("offer")),
+          #("requestId", json.string(request_id)),
+          #("status", json.string(status)),
+        ])
+        |> json.to_string()
+        |> mist.send_text_frame(conn, _)
 
       state
     }
@@ -157,6 +185,7 @@ fn handle_ws_join(
   user_id,
   state: server_state.State,
   conn,
+  request_id,
 ) {
   let room =
     process.call(
@@ -170,11 +199,15 @@ fn handle_ws_join(
       state
     }
     Ok(room) -> {
-      let _ =
-        mist.send_text_frame(
-          conn,
-          "joined" <> list.length(room.members) |> int.to_string(),
-        )
+      let response =
+        json.object([
+          #("type", json.string("join")),
+          #("requestId", json.string(request_id)),
+          #("room", rooms.room_encoder(room)),
+        ])
+        |> json.to_string()
+
+      let _ = mist.send_text_frame(conn, response)
 
       server_state.State(..state, rooms: list.prepend(state.rooms, room_id))
     }
@@ -187,6 +220,7 @@ fn handle_ws_leave(
   user_id,
   state: server_state.State,
   conn,
+  request_id,
 ) {
   case process.call(rooms_actor, rooms.Leave(room_id, user_id, _), 10) {
     Error(err) -> {
