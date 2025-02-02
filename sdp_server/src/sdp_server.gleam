@@ -5,6 +5,7 @@ import gleam/function
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/int
+import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
@@ -91,11 +92,29 @@ fn handle_ws_message(rooms_actor) {
         actor.continue(state)
       }
       mist.Closed | mist.Shutdown -> actor.Stop(process.Normal)
+      mist.Custom(server_state.SendSdpCertReply(
+        source_user_id,
+        source_room_id,
+        sdp_cert,
+      )) -> {
+        let _ =
+          json.object([
+            #("type", json.string("userOfferReply")),
+            #("sourceUserId", json.string(source_user_id)),
+            #("roomId", json.string(source_room_id)),
+            #("sdpCert", json.string(sdp_cert)),
+          ])
+          |> json.to_string()
+          |> mist.send_text_frame(conn, _)
+
+        actor.continue(state)
+      }
     }
   }
 }
 
 fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
+  io.debug(msg)
   case json.parse(msg, command_decoder.decoder()) {
     Ok(command_decoder.Join(request_id, room_id)) ->
       handle_ws_join(
@@ -158,6 +177,7 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       state
     }
     Ok(command_decoder.OfferReply(request_id, room_id, to_user, sdp_cert)) -> {
+      io.debug("reply received")
       let _ = case
         process.call(
           rooms_actor,
@@ -171,7 +191,8 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       state
     }
     Ok(_) -> panic
-    Error(_) -> {
+    Error(err) -> {
+      io.debug(err)
       let _ = mist.send_text_frame(conn, "something went wrong")
       state
     }

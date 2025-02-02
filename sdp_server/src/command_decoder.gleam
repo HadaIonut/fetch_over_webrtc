@@ -36,13 +36,13 @@ pub fn decoder() {
 
       decode.success(Offer(req_id, room_id, sdp_cert))
     }
-    "offerReply" -> {
+    "answer" -> {
       use sdp_cert <- decode.field("sdpCert", decode.string)
       use room_id <- decode.field("roomId", decode.string)
       use to_user <- decode.field("toUser", decode.string)
 
       decode.success(OfferReply(req_id, room_id, to_user, sdp_cert))
     }
-    _ -> decode.failure(Err, "unknown message type")
+    _ -> decode.failure(Err, "unknown message type " <> msg_type)
   }
 }

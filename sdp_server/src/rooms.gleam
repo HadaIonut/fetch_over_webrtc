@@ -204,7 +204,7 @@ fn handle_offer_reply(rooms: Rooms, room_id, user_id, to_user_id, sdp_cert) {
         Ok(usr) -> {
           process.send(
             usr.connection,
-            server_state.SendSdpCert(user_id, room_id, sdp_cert),
+            server_state.SendSdpCertReply(user_id, room_id, sdp_cert),
           )
           Ok(room)
         }

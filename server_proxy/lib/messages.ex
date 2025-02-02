@@ -16,6 +16,6 @@ defmodule Messages do
 
   defmodule OfferReply do
     @derive JSON.Encoder
-    defstruct [:requestId, :roomId, :toUser, :sdpCert, type: "offerReply"]
+    defstruct [:requestId, :roomId, :toUser, :sdpCert, type: "answer"]
   end
 end

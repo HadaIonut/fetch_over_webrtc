@@ -1,4 +1,6 @@
 defmodule Negociator do
+  require Logger
+
   def start_link(state) do
     Task.start_link(fn -> loop(state) end)
   end
@@ -51,12 +53,20 @@ defmodule SocketHandler do
         IO.inspect(state)
         {:ok, state}
 
+      {:ok, %{"type" => type, "sdpCert" => cert}} when type == "userOfferReply" ->
+        Logger.info("answer received")
+
+        send(state.parent, {:answer, cert})
+
+        {:ok, state}
+
       {:ok,
        %{"type" => type, "sdpCert" => cert, "sourceUserId" => source_user_id, "roomId" => room_id}}
       when type == "userOffer" ->
         Logger.info("someone offered a cert")
-        IO.inspect(state)
-        establish_connection_with_user(source_user_id, room_id, cert, state.negociator_pid)
+
+        establish_connection_with_user(source_user_id, room_id, cert, state.server_pid)
+
         {:ok, state}
 
       {:ok, msg} ->
@@ -70,33 +80,29 @@ defmodule SocketHandler do
     end
   end
 
-  defp establish_connection_with_user(user, room_id, sdp_cert, negociator_pid) do
+  defp establish_connection_with_user(user, room_id, sdp_cert, server_pid) do
     {:ok, pc} =
       ExWebRTC.PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
 
     cert = sdp_cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
-    IO.inspect(cert)
-    res = ExWebRTC.PeerConnection.set_remote_description(pc, cert)
-    IO.inspect(res)
+    ExWebRTC.PeerConnection.set_remote_description(pc, cert)
 
-    Logger.info("set remote description")
     {:ok, answer} = ExWebRTC.PeerConnection.create_answer(pc)
+    ExWebRTC.PeerConnection.set_local_description(pc, answer)
     request_id = UUID.uuid4()
 
     message =
       JSON.encode!(%Messages.OfferReply{
         requestId: request_id,
         roomId: room_id,
+        toUser: user,
         sdpCert: answer |> ExWebRTC.SessionDescription.to_json() |> JSON.encode!()
       })
 
-    WebSockex.send_frame(self(), {:text, message})
-
-    send(negociator_pid, {:add_pending, request_id, self()})
-
-    receive do
-      {:resolved, value} -> IO.inspect(value)
-    end
+    send(server_pid, {
+      :establish_connection,
+      message
+    })
   end
 
   def handle_disconnect(%{reason: {:local, reason}}, state) do
