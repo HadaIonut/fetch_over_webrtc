@@ -68,9 +68,6 @@ defmodule SocketHandler do
         |> loop()
 
       {:resolve_request, request_id, value} ->
-        IO.inspect("trying to resolve " <> request_id)
-        IO.inspect(state)
-
         Map.get(state, request_id)
         |> send({:resolved, value})
 

@@ -114,7 +114,6 @@ fn handle_ws_message(rooms_actor) {
 }
 
 fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
-  io.debug(msg)
   case json.parse(msg, command_decoder.decoder()) {
     Ok(command_decoder.Join(request_id, room_id)) ->
       handle_ws_join(
@@ -135,49 +134,14 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
         request_id,
       )
     Ok(command_decoder.Create(request_id)) -> {
-      let room =
-        process.call(
-          rooms_actor,
-          rooms.Create(state.user_id, state.self, _),
-          10,
-        )
-
-      let _ =
-        json.object([
-          #("type", json.string("create")),
-          #("requestId", json.string(request_id)),
-          #("roomId", json.string(room.room_id)),
-        ])
-        |> json.to_string()
-        |> mist.send_text_frame(conn, _)
-
+      handle_ws_room_create(rooms_actor, state, request_id, conn)
       state
     }
     Ok(command_decoder.Offer(request_id, room_id, sdp_cert)) -> {
-      let status = case
-        process.call(
-          rooms_actor,
-          rooms.Offer(state.user_id, room_id, sdp_cert, _),
-          10,
-        )
-      {
-        Ok(_) -> "good"
-        Error(err) -> err
-      }
-
-      let _ =
-        json.object([
-          #("type", json.string("offer")),
-          #("requestId", json.string(request_id)),
-          #("status", json.string(status)),
-        ])
-        |> json.to_string()
-        |> mist.send_text_frame(conn, _)
-
+      handle_ws_offer(rooms_actor, state, conn, room_id, sdp_cert, request_id)
       state
     }
     Ok(command_decoder.OfferReply(request_id, room_id, to_user, sdp_cert)) -> {
-      io.debug("reply received")
       let _ = case
         process.call(
           rooms_actor,
@@ -261,4 +225,56 @@ fn handle_ws_leave(
       )
     }
   }
+}
+
+fn handle_ws_room_create(
+  rooms_actor,
+  state: server_state.State,
+  request_id,
+  conn,
+) {
+  let room =
+    process.call(rooms_actor, rooms.Create(state.user_id, state.self, _), 10)
+
+  let _ =
+    json.object([
+      #("type", json.string("create")),
+      #("requestId", json.string(request_id)),
+      #("roomId", json.string(room.room_id)),
+    ])
+    |> json.to_string()
+    |> mist.send_text_frame(conn, _)
+
+  Nil
+}
+
+fn handle_ws_offer(
+  rooms_actor,
+  state: server_state.State,
+  conn,
+  room_id,
+  sdp_cert,
+  request_id,
+) {
+  let status = case
+    process.call(
+      rooms_actor,
+      rooms.Offer(state.user_id, room_id, sdp_cert, _),
+      10,
+    )
+  {
+    Ok(_) -> "good"
+    Error(err) -> err
+  }
+
+  let _ =
+    json.object([
+      #("type", json.string("offer")),
+      #("requestId", json.string(request_id)),
+      #("status", json.string(status)),
+    ])
+    |> json.to_string()
+    |> mist.send_text_frame(conn, _)
+
+  Nil
 }

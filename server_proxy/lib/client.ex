@@ -1,20 +1,10 @@
-defmodule Clinet do
+defmodule Client do
   require Logger
 
   def start(room_id) do
     {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
 
-    {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, parent_pid)
-
-    {pc, data_channel, room, owner} = send_join_room_message(socket_pid, negociator_pid, room_id)
-
-    send(parent_pid, {:add_connection, pc, data_channel, room, owner})
-
-    receive do
-      {:ex_webrtc, ^pc, {:ice_candidate, candidate}} ->
-        IO.inspect("received candidate")
-        IO.inspect(candidate)
-    end
+    send(parent_pid, {:start, room_id})
   end
 
   defp send_join_room_message(socket_pid, negociator_pid, room_id) do
@@ -30,7 +20,6 @@ defmodule Clinet do
     room_owner =
       receive do
         {:resolved, value} ->
-          IO.inspect(value)
           Map.get(value, "room") |> Map.get("owner_id")
       end
 
@@ -40,7 +29,7 @@ defmodule Clinet do
     send(negociator_pid, {:add_pending, request_id, self()})
 
     receive do
-      {:resolved, value} -> IO.inspect(value)
+      {:resolved, value} -> value
     end
 
     {peer_connection, data_channel, room_id, room_owner}
@@ -69,6 +58,15 @@ defmodule Clinet do
 
   defp loop(state) do
     receive do
+      {:start, room_id} ->
+        {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
+
+        {pc, data_channel, room, owner} =
+          send_join_room_message(socket_pid, negociator_pid, room_id)
+
+        send(self(), {:add_connection, pc, data_channel, room, owner})
+        loop(state)
+
       {:sdp_offered, %{"sdpCert" => cert, "roomId" => room_id, "sourceUserId" => user_id}} ->
         {data_channel, pc} = Map.get(state, room_id) |> Map.get(user_id)
         cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
@@ -81,6 +79,12 @@ defmodule Clinet do
 
         Map.put(state, room, room_val)
         |> loop()
+
+      {:ex_webrtc, pc, {:ice_candidate, candidate}} ->
+        IO.inspect("received candidate")
+        IO.inspect(candidate)
+
+        loop(state)
     end
   end
 end
