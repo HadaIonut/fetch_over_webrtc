@@ -118,15 +118,8 @@ defmodule Client do
             iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
           })
 
-        IO.inspect(message)
-
         WebSockex.send_frame(socket_pid, {:text, message})
 
-        loop(state)
-
-      {:data_channel, smth?} ->
-        Logger.info("data channel?")
-        IO.inspect(smth?)
         loop(state)
 
       {:test} ->
@@ -136,14 +129,7 @@ defmodule Client do
           Map.get(state, room)
           |> Map.get(owner)
 
-        ref = ExWebRTC.PeerConnection.get_data_channel(pc, data_channel)
-
         ExWebRTC.PeerConnection.send_data(pc, data_channel, "fjsdakfjdlks")
-        loop(state)
-
-      {:data_channel_state_change, ref, status} ->
-        IO.inspect(ref)
-        IO.inspect(status)
         loop(state)
     end
   end

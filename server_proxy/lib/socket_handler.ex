@@ -29,7 +29,7 @@ defmodule SocketHandler do
       when type in @reply_message_types ->
         send(state.negociator_pid, {:resolve_request, request_id, res})
 
-      {:ok, %{"type" => type} = res} when type == "userJoined" ->
+      {:ok, %{"type" => type}} when type == "userJoined" ->
         Logger.info("user joined")
 
       {:ok, %{"type" => type} = res} when type == "userOffer" ->

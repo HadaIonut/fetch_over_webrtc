@@ -1,5 +1,4 @@
 defmodule Server do
-  alias ExWebRTC.ICECandidate
   require Logger
 
   def start() do
@@ -12,8 +11,6 @@ defmodule Server do
     request_id = UUID.uuid4()
 
     message = %Messages.CreateRoom{requestId: request_id} |> JSON.encode!()
-
-    Logger.info("Sending message: #{message}")
 
     WebSockex.send_frame(socket_pid, {:text, message})
 
@@ -80,14 +77,8 @@ defmodule Server do
 
         loop(state)
 
-      {:ex_webrtc, pc, {:data, data_channel, data}} ->
+      {:ex_webrtc, _pc, {:data, _data_channel, data}} ->
         Logger.warning("Received data: #{data}")
-        IO.puts("Received data: #{data}")
-
-      {:ex_webrtc, pc, {:data_channel, smth?}} ->
-        Logger.info("data channel?")
-        IO.inspect(smth?)
-        loop(state)
 
       {:ex_webrtc, pc, {:ice_candidate, candidate}} ->
         [room_id, user_id] =
