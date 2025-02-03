@@ -9,6 +9,11 @@ import gleam/result
 import gluid
 import server_state
 
+pub type RoomConnectionType {
+  Star
+  Mesh
+}
+
 pub type RoomMessage {
   Join(
     room_id: String,
@@ -17,6 +22,7 @@ pub type RoomMessage {
   )
   Create(
     owner_id: String,
+    conn_type: RoomConnectionType,
     connection: process.Subject(server_state.Message),
     reply_with: process.Subject(Room),
   )
@@ -54,7 +60,12 @@ pub type User {
 }
 
 pub type Room {
-  Room(owner_id: String, members: List(User), room_id: String)
+  Room(
+    owner_id: String,
+    connection_type: RoomConnectionType,
+    members: List(User),
+    room_id: String,
+  )
 }
 
 pub type Rooms =
@@ -72,11 +83,25 @@ fn user_encoder(user: User) {
   json.object([#("id", json.string(user.id))])
 }
 
-pub fn notify_connections(users: List(User), filter_user_id, msg) {
-  list.each(users, fn(usr) {
-    use <- bool.guard(usr.id == filter_user_id, Nil)
+fn guard_fn(room_type: RoomConnectionType, usr, filter_user_id, owner) {
+  case room_type {
+    Mesh -> usr == filter_user_id
+    Star -> usr != owner
+  }
+}
 
-    process.send(usr.connection, server_state.SendNotifications(msg))
+pub fn notify_connections(
+  room: Room,
+  filter_user_id,
+  message: server_state.Message,
+) {
+  list.each(room.members, fn(usr) {
+    use <- bool.guard(
+      guard_fn(room.connection_type, usr.id, filter_user_id, room.owner_id),
+      Nil,
+    )
+
+    process.send(usr.connection, message)
   })
 }
 
@@ -91,8 +116,14 @@ fn user_can_join_room(rooms: Rooms, user_id, room_id) {
   }
 }
 
-fn handle_room_create(rooms, owner_id, connection, subject) {
-  let room = Room(owner_id, [User(owner_id, connection)], gluid.guidv4())
+fn handle_room_create(rooms, owner_id, connection_type, connection, subject) {
+  let room =
+    Room(
+      owner_id,
+      connection_type,
+      [User(owner_id, connection)],
+      gluid.guidv4(),
+    )
 
   process.send(subject, room)
 
@@ -121,7 +152,8 @@ fn handle_room_join(rooms, user: User, room_id, subject) {
         #("room", room_encoder(room)),
       ])
       |> json.to_string()
-      |> notify_connections(room.members, user.id, _)
+      |> server_state.SendNotifications()
+      |> notify_connections(room, user.id, _)
 
       process.send(subject, Ok(room))
       rooms
@@ -157,7 +189,8 @@ fn room_leave(rooms: Rooms, room_id, user_id) {
       room
       |> room_encoder()
       |> json.to_string()
-      |> notify_connections(room.members, user_id, _)
+      |> server_state.SendNotifications()
+      |> notify_connections(room, user_id, _)
 
       #(rooms, Ok(room))
     }
@@ -190,14 +223,8 @@ fn handle_drop_user(rooms, user_rooms, user_id) {
 fn handle_offer(rooms: Rooms, room_id, user_id, sdp_cert) {
   case dict.get(rooms, room_id) {
     Ok(room) -> {
-      list.each(room.members, fn(mem) {
-        use <- bool.guard(mem.id == user_id, Nil)
-
-        process.send(
-          mem.connection,
-          server_state.SendSdpCert(user_id, room_id, sdp_cert),
-        )
-      })
+      server_state.SendSdpCert(user_id, room_id, sdp_cert)
+      |> notify_connections(room, user_id, _)
       Ok(room)
     }
     Error(_) -> Error("room not found")
@@ -226,8 +253,8 @@ fn handle_message(
   rooms: Rooms,
 ) -> actor.Next(RoomMessage, Rooms) {
   case message {
-    Create(owner_id, connection, subject) ->
-      handle_room_create(rooms, owner_id, connection, subject)
+    Create(owner_id, connection_type, connection, subject) ->
+      handle_room_create(rooms, owner_id, connection_type, connection, subject)
     Destroy(room_id) -> dict.drop(rooms, [room_id]) |> actor.continue()
     Join(room_id, user, subject) ->
       handle_room_join(rooms, user, room_id, subject)

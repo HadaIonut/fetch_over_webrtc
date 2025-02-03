@@ -77,8 +77,14 @@ defmodule Server do
 
         loop(state)
 
-      {:ex_webrtc, _pc, {:data, _data_channel, data}} ->
-        Logger.warning("Received data: #{data}")
+      {:ex_webrtc, pc, {:data, _data_channel, data}} ->
+        [room_id, user_id] =
+          Map.keys(state)
+          |> Enum.find(fn key -> Map.get(state, key) == pc end)
+          |> String.split("_")
+
+        Logger.warning("Received data: #{data} from #{room_id} #{user_id}")
+        loop(state)
 
       {:ex_webrtc, pc, {:ice_candidate, candidate}} ->
         [room_id, user_id] =
