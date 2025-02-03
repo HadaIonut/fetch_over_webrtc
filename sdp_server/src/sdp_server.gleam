@@ -91,7 +91,6 @@ fn handle_ws_message(rooms_actor) {
 
         actor.continue(state)
       }
-      mist.Closed | mist.Shutdown -> actor.Stop(process.Normal)
       mist.Custom(server_state.SendSdpCertReply(
         source_user_id,
         source_room_id,
@@ -109,6 +108,24 @@ fn handle_ws_message(rooms_actor) {
 
         actor.continue(state)
       }
+      mist.Custom(server_state.SendICECandidate(
+        ice_candidate,
+        source_user_id,
+        source_room_id,
+      )) -> {
+        let _ =
+          json.object([
+            #("type", json.string("ICECandidate")),
+            #("sourceUserId", json.string(source_user_id)),
+            #("sourceRoomId", json.string(source_room_id)),
+            #("ICECandidate", json.string(ice_candidate)),
+          ])
+          |> json.to_string()
+          |> mist.send_text_frame(conn, _)
+
+        actor.continue(state)
+      }
+      mist.Closed | mist.Shutdown -> actor.Stop(process.Normal)
     }
   }
 }
@@ -141,7 +158,7 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       handle_ws_offer(rooms_actor, state, conn, room_id, sdp_cert, request_id)
       state
     }
-    Ok(command_decoder.OfferReply(request_id, room_id, to_user, sdp_cert)) -> {
+    Ok(command_decoder.OfferReply(_, room_id, to_user, sdp_cert)) -> {
       let _ = case
         process.call(
           rooms_actor,
@@ -154,7 +171,29 @@ fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       }
       state
     }
-    Ok(_) -> panic
+    Ok(command_decoder.SendIce(_, room_id, target_user_id, ice_candidate)) -> {
+      let _ = case
+        process.call(
+          rooms_actor,
+          rooms.SendICE(
+            state.user_id,
+            target_user_id,
+            room_id,
+            ice_candidate,
+            _,
+          ),
+          10,
+        )
+      {
+        Ok(_) -> mist.send_text_frame(conn, "good")
+        Error(err) -> mist.send_text_frame(conn, err)
+      }
+      state
+    }
+    Ok(command_decoder.Err) -> {
+      io.debug("recieved unknown message type")
+      state
+    }
     Error(err) -> {
       io.debug(err)
       let _ = mist.send_text_frame(conn, "something went wrong")

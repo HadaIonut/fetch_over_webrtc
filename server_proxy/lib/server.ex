@@ -1,4 +1,5 @@
 defmodule Server do
+  alias ExWebRTC.ICECandidate
   require Logger
 
   def start() do
@@ -34,12 +35,15 @@ defmodule Server do
     ExWebRTC.PeerConnection.set_local_description(pc, answer)
     request_id = UUID.uuid4()
 
-    JSON.encode!(%Messages.OfferReply{
-      requestId: request_id,
-      roomId: room_id,
-      toUser: user_id,
-      sdpCert: answer |> ExWebRTC.SessionDescription.to_json() |> JSON.encode!()
-    })
+    message =
+      JSON.encode!(%Messages.OfferReply{
+        requestId: request_id,
+        roomId: room_id,
+        toUser: user_id,
+        sdpCert: answer |> ExWebRTC.SessionDescription.to_json() |> JSON.encode!()
+      })
+
+    {message, room_id, user_id, pc}
   end
 
   defp loop(state) do
@@ -54,13 +58,58 @@ defmodule Server do
         loop(state)
 
       {:sdp_offered, data} ->
-        message = start_connection(data)
+        {message, room_id, user_id, peer_connection} = start_connection(data)
         Map.get(state, "socket_pid") |> WebSockex.send_frame({:text, message})
 
-        loop(state)
+        Map.put(state, "#{room_id}_#{user_id}", peer_connection)
+        |> loop()
 
       {:add_socket, socket_pid} ->
         Map.put(state, "socket_pid", socket_pid) |> loop()
+
+      {:ice_candidate,
+       %{
+         "sourceUserId" => source_user_id,
+         "sourceRoomId" => source_room_id,
+         "ICECandidate" => ice_candidate
+       }} ->
+        ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
+
+        Map.get(state, "#{source_room_id}_#{source_user_id}")
+        |> ExWebRTC.PeerConnection.add_ice_candidate(ice_candidate)
+
+        loop(state)
+
+      {:ex_webrtc, pc, {:data, data_channel, data}} ->
+        Logger.warning("Received data: #{data}")
+        IO.puts("Received data: #{data}")
+
+      {:ex_webrtc, pc, {:data_channel, smth?}} ->
+        Logger.info("data channel?")
+        IO.inspect(smth?)
+        loop(state)
+
+      {:ex_webrtc, pc, {:ice_candidate, candidate}} ->
+        [room_id, user_id] =
+          Map.keys(state)
+          |> Enum.find(fn key -> Map.get(state, key) == pc end)
+          |> String.split("_")
+
+        request_id = UUID.uuid4()
+
+        message =
+          JSON.encode!(%Messages.SendICE{
+            requestId: request_id,
+            roomId: room_id,
+            targetUserId: user_id,
+            iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
+          })
+
+        IO.inspect(message)
+
+        Map.get(state, "socket_pid") |> WebSockex.send_frame({:text, message})
+
+        loop(state)
     end
   end
 end

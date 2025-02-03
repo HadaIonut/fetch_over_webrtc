@@ -18,4 +18,9 @@ defmodule Messages do
     @derive JSON.Encoder
     defstruct [:requestId, :roomId, :toUser, :sdpCert, type: "answer"]
   end
+
+  defmodule SendICE do
+    @derive JSON.Encoder
+    defstruct [:requestId, :roomId, :targetUserId, :iceCandidate, type: "ice"]
+  end
 end

@@ -5,6 +5,11 @@ defmodule Client do
     {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
 
     send(parent_pid, {:start, room_id})
+    parent_pid
+  end
+
+  def send_test_rtc_msg(parent_pid) do
+    send(parent_pid, {:test})
   end
 
   defp send_join_room_message(socket_pid, negociator_pid, room_id) do
@@ -53,7 +58,7 @@ defmodule Client do
         sdpCert: offer |> ExWebRTC.SessionDescription.to_json() |> JSON.encode!()
       })
 
-    {val, request_id, pc, data_channel}
+    {val, request_id, pc, data_channel.ref}
   end
 
   defp loop(state) do
@@ -65,10 +70,13 @@ defmodule Client do
           send_join_room_message(socket_pid, negociator_pid, room_id)
 
         send(self(), {:add_connection, pc, data_channel, room, owner})
-        loop(state)
+
+        Map.put(state, "connection", {room, owner})
+        |> Map.put("pids", {negociator_pid, socket_pid})
+        |> loop()
 
       {:sdp_offered, %{"sdpCert" => cert, "roomId" => room_id, "sourceUserId" => user_id}} ->
-        {data_channel, pc} = Map.get(state, room_id) |> Map.get(user_id)
+        {_, pc} = Map.get(state, room_id) |> Map.get(user_id)
         cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
         :ok = ExWebRTC.PeerConnection.set_remote_description(pc, cert)
 
@@ -80,10 +88,62 @@ defmodule Client do
         Map.put(state, room, room_val)
         |> loop()
 
-      {:ex_webrtc, pc, {:ice_candidate, candidate}} ->
-        IO.inspect("received candidate")
-        IO.inspect(candidate)
+      {:ice_candidate,
+       %{
+         "ICECandidate" => ice_candidate
+       }} ->
+        {room, owner} = Map.get(state, "connection")
 
+        ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
+
+        {_, pc} =
+          Map.get(state, room)
+          |> Map.get(owner)
+
+        ExWebRTC.PeerConnection.add_ice_candidate(pc, ice_candidate)
+
+        loop(state)
+
+      {:ex_webrtc, _, {:ice_candidate, candidate}} ->
+        {room, owner} = Map.get(state, "connection")
+        {_, socket_pid} = Map.get(state, "pids")
+
+        request_id = UUID.uuid4()
+
+        message =
+          JSON.encode!(%Messages.SendICE{
+            requestId: request_id,
+            roomId: room,
+            targetUserId: owner,
+            iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
+          })
+
+        IO.inspect(message)
+
+        WebSockex.send_frame(socket_pid, {:text, message})
+
+        loop(state)
+
+      {:data_channel, smth?} ->
+        Logger.info("data channel?")
+        IO.inspect(smth?)
+        loop(state)
+
+      {:test} ->
+        {room, owner} = Map.get(state, "connection")
+
+        {data_channel, pc} =
+          Map.get(state, room)
+          |> Map.get(owner)
+
+        ref = ExWebRTC.PeerConnection.get_data_channel(pc, data_channel)
+
+        ExWebRTC.PeerConnection.send_data(pc, data_channel, "fjsdakfjdlks")
+        loop(state)
+
+      {:data_channel_state_change, ref, status} ->
+        IO.inspect(ref)
+        IO.inspect(status)
         loop(state)
     end
   end

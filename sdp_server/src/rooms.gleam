@@ -40,6 +40,13 @@ pub type RoomMessage {
     sdp_cert: String,
     reply_with: process.Subject(Result(Room, String)),
   )
+  SendICE(
+    source_user_id: String,
+    user_id: String,
+    room_id: String,
+    ice_candidate: String,
+    reply_with: process.Subject(Result(Room, String)),
+  )
 }
 
 pub type User {
@@ -236,6 +243,32 @@ fn handle_message(
     }
     OfferReply(user_id, room_id, to_user_id, sdp_cert, subject) -> {
       handle_offer_reply(rooms, room_id, user_id, to_user_id, sdp_cert)
+      |> process.send(subject, _)
+
+      actor.continue(rooms)
+    }
+    SendICE(source_user_id, user_id, room_id, ice_candidate, subject) -> {
+      case dict.get(rooms, room_id) {
+        Ok(room) -> {
+          let user = list.find(room.members, fn(usr) { usr.id == user_id })
+
+          case user {
+            Ok(user) -> {
+              process.send(
+                user.connection,
+                server_state.SendICECandidate(
+                  ice_candidate,
+                  source_user_id,
+                  room_id,
+                ),
+              )
+              Ok(room)
+            }
+            Error(_) -> Error("user not found")
+          }
+        }
+        Error(_) -> Error("room not found")
+      }
       |> process.send(subject, _)
 
       actor.continue(rooms)

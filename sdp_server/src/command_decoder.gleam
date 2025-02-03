@@ -1,4 +1,5 @@
 import gleam/dynamic/decode
+import gleam/io
 import gleam/string
 
 pub type Messages {
@@ -12,6 +13,12 @@ pub type Messages {
     to_user: String,
     sdp_cert: String,
   )
+  SendIce(
+    request_id: String,
+    room_id: String,
+    target_user_id: String,
+    ice_candidate: String,
+  )
 
   Err
 }
@@ -19,6 +26,8 @@ pub type Messages {
 pub fn decoder() {
   use msg_type <- decode.field("type", decode.string)
   use req_id <- decode.field("requestId", decode.string)
+
+  io.debug(msg_type)
 
   case string.lowercase(msg_type) {
     "join" -> {
@@ -43,6 +52,14 @@ pub fn decoder() {
 
       decode.success(OfferReply(req_id, room_id, to_user, sdp_cert))
     }
+    "ice" -> {
+      use room_id <- decode.field("roomId", decode.string)
+      use target_user_id <- decode.field("targetUserId", decode.string)
+      use ice_candidate <- decode.field("iceCandidate", decode.string)
+
+      decode.success(SendIce(req_id, room_id, target_user_id, ice_candidate))
+    }
+
     _ -> decode.failure(Err, "unknown message type " <> msg_type)
   }
 }

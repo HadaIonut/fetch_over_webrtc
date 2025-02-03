@@ -42,6 +42,10 @@ defmodule SocketHandler do
 
         send(state.parent, {:sdp_offered, res})
 
+      {:ok, %{"type" => type} = res} when type == "ICECandidate" ->
+        Logger.info("Ice Candidate received ")
+        send(state.parent, {:ice_candidate, res})
+
       {:ok, _} ->
         IO.inspect("unkonwn msg")
 

@@ -10,6 +10,11 @@ pub type Message {
     source_room_id: String,
     sdp_cert: String,
   )
+  SendICECandidate(
+    ice_candidate: String,
+    source_user_id: String,
+    source_room_id: String,
+  )
 }
 
 pub type State {
