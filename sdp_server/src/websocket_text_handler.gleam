@@ -1,17 +1,80 @@
-import command_decoder
+import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
 import gleam/otp/actor
+import gleam/string
 import mist
 import rooms
 import server_state
 
+pub type Messages {
+  Join(request_id: String, room_id: String)
+  Leave(request_id: String, room_id: String)
+  Create(request_id: String)
+  Offer(request_id: String, room_id: String, sdp_cert: String)
+  OfferReply(
+    request_id: String,
+    room_id: String,
+    to_user: String,
+    sdp_cert: String,
+  )
+  SendIce(
+    request_id: String,
+    room_id: String,
+    target_user_id: String,
+    ice_candidate: String,
+  )
+
+  Err
+}
+
+pub fn decoder() {
+  use msg_type <- decode.field("type", decode.string)
+  use req_id <- decode.field("requestId", decode.string)
+
+  io.debug(msg_type)
+
+  case string.lowercase(msg_type) {
+    "join" -> {
+      use room_id <- decode.field("roomId", decode.string)
+      decode.success(Join(req_id, room_id))
+    }
+    "leave" -> {
+      use room_id <- decode.field("roomId", decode.string)
+      decode.success(Leave(req_id, room_id))
+    }
+    "create" -> decode.success(Create(req_id))
+    "offer" -> {
+      use sdp_cert <- decode.field("sdpCert", decode.string)
+      use room_id <- decode.field("roomId", decode.string)
+
+      decode.success(Offer(req_id, room_id, sdp_cert))
+    }
+    "answer" -> {
+      use sdp_cert <- decode.field("sdpCert", decode.string)
+      use room_id <- decode.field("roomId", decode.string)
+      use to_user <- decode.field("toUser", decode.string)
+
+      decode.success(OfferReply(req_id, room_id, to_user, sdp_cert))
+    }
+    "ice" -> {
+      use room_id <- decode.field("roomId", decode.string)
+      use target_user_id <- decode.field("targetUserId", decode.string)
+      use ice_candidate <- decode.field("iceCandidate", decode.string)
+
+      decode.success(SendIce(req_id, room_id, target_user_id, ice_candidate))
+    }
+
+    _ -> decode.failure(Err, "unknown message type " <> msg_type)
+  }
+}
+
 pub fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
   case msg {
-    command_decoder.Join(request_id, room_id) ->
+    Join(request_id, room_id) ->
       handle_ws_join(
         rooms_actor,
         room_id,
@@ -20,7 +83,7 @@ pub fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
         conn,
         request_id,
       )
-    command_decoder.Leave(request_id, room_id) ->
+    Leave(request_id, room_id) ->
       handle_ws_leave(
         rooms_actor,
         room_id,
@@ -29,11 +92,11 @@ pub fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
         conn,
         request_id,
       )
-    command_decoder.Create(request_id) ->
+    Create(request_id) ->
       handle_ws_room_create(rooms_actor, state, request_id, conn)
-    command_decoder.Offer(request_id, room_id, sdp_cert) ->
+    Offer(request_id, room_id, sdp_cert) ->
       handle_ws_offer(rooms_actor, state, conn, room_id, sdp_cert, request_id)
-    command_decoder.OfferReply(_, room_id, to_user, sdp_cert) -> {
+    OfferReply(_, room_id, to_user, sdp_cert) -> {
       let _ = case
         process.call(
           rooms_actor,
@@ -46,7 +109,7 @@ pub fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       }
       state
     }
-    command_decoder.SendIce(_, room_id, target_user_id, ice_candidate) -> {
+    SendIce(_, room_id, target_user_id, ice_candidate) -> {
       let _ = case
         process.call(
           rooms_actor,
@@ -65,7 +128,7 @@ pub fn handle_ws_text(msg, conn, state: server_state.State, rooms_actor) {
       }
       state
     }
-    command_decoder.Err -> {
+    Err -> {
       io.debug("recieved unknown message type")
       state
     }

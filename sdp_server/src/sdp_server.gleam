@@ -1,4 +1,3 @@
-import command_decoder
 import gleam/bytes_tree
 import gleam/erlang/process
 import gleam/function
@@ -64,7 +63,7 @@ fn handle_ws_message(rooms_actor) {
         actor.continue(state)
       }
       mist.Text(msg) ->
-        case json.parse(msg, command_decoder.decoder()) {
+        case json.parse(msg, websocket_text_handler.decoder()) {
           Ok(msg) ->
             websocket_text_handler.handle_ws_text(msg, conn, state, rooms_actor)
           Error(err) -> {

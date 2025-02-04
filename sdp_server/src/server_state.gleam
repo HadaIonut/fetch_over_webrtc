@@ -7,6 +7,7 @@ pub type Message {
   Broadcast(String)
 
   SendNotifications(String)
+  RoomClosed(room_id: String)
   SendSdpCert(source_user_id: String, source_room_id: String, sdp_cert: String)
   SendSdpCertReply(
     source_user_id: String,
@@ -67,6 +68,17 @@ pub fn handle_custom_broadcast(message: Message, conn, state) {
           #("sourceUserId", json.string(source_user_id)),
           #("sourceRoomId", json.string(source_room_id)),
           #("ICECandidate", json.string(ice_candidate)),
+        ])
+        |> json.to_string()
+        |> mist.send_text_frame(conn, _)
+
+      actor.continue(state)
+    }
+    RoomClosed(room_id) -> {
+      let _ =
+        json.object([
+          #("type", json.string("roomClosed")),
+          #("room_id", json.string(room_id)),
         ])
         |> json.to_string()
         |> mist.send_text_frame(conn, _)

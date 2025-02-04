@@ -166,33 +166,50 @@ fn room_leave(rooms: Rooms, room_id, user_id) {
   case dict.get(rooms, room_id) {
     Error(_) -> #(rooms, Error("room not found"))
     Ok(old_room) -> {
-      let user_in_room =
-        list.find(old_room.members, fn(mem) { mem.id == user_id })
-        |> result.is_error()
+      case old_room.owner_id == user_id {
+        True -> {
+          let rooms = dict.filter(rooms, fn(key, _) { key == room_id })
 
-      use <- bool.guard(user_in_room, #(rooms, Error("Not in the room")))
+          list.each(old_room.members, fn(mem) {
+            use <- bool.guard(mem.id == user_id, Nil)
 
-      let new_rooms =
-        dict.upsert(rooms, room_id, fn(cur) {
-          let assert option.Some(cur) = cur
+            process.send(mem.connection, server_state.RoomClosed(room_id))
+          })
 
-          Room(
-            ..cur,
-            members: list.filter(cur.members, fn(room) { room.id != user_id }),
-          )
-        })
+          #(rooms, Ok(old_room))
+        }
+        False -> {
+          let user_in_room =
+            list.find(old_room.members, fn(mem) { mem.id == user_id })
+            |> result.is_error()
 
-      let assert Ok(room) =
-        new_rooms
-        |> dict.get(room_id)
+          use <- bool.guard(user_in_room, #(rooms, Error("Not in the room")))
 
-      room
-      |> room_encoder()
-      |> json.to_string()
-      |> server_state.SendNotifications()
-      |> notify_connections(room, user_id, _)
+          let new_rooms =
+            dict.upsert(rooms, room_id, fn(cur) {
+              let assert option.Some(cur) = cur
 
-      #(rooms, Ok(room))
+              Room(
+                ..cur,
+                members: list.filter(cur.members, fn(room) {
+                  room.id != user_id
+                }),
+              )
+            })
+
+          let assert Ok(room) =
+            new_rooms
+            |> dict.get(room_id)
+
+          room
+          |> room_encoder()
+          |> json.to_string()
+          |> server_state.SendNotifications()
+          |> notify_connections(room, user_id, _)
+
+          #(rooms, Ok(room))
+        }
+      }
     }
   }
 }

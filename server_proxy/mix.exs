@@ -26,7 +26,9 @@ defmodule ServerProxy.MixProject do
       {:websockex, "~> 0.4.3"},
       {:uuid, "~> 1.1"},
       {:ex_webrtc, "~> 0.7.0"},
-      {:ex_sctp, "~> 0.1.0"}
+      {:ex_sctp, "~> 0.1.0"},
+      {:typed_struct, "~> 0.1.4"},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 end
