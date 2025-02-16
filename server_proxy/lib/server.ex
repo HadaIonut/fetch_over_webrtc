@@ -109,9 +109,10 @@ defmodule WebRTCHandler do
     end)
   end
 
-  def loop(
-        %{peer_connection: pc, room_id: room_id, user_id: user_id, parent_pid: parent_pid} = state
-      ) do
+  defp loop(
+         %{peer_connection: pc, room_id: room_id, user_id: user_id, parent_pid: parent_pid} =
+           state
+       ) do
     receive do
       {:data, _data_channel, data} ->
         Logger.warning("Received data: #{data} from #{room_id} #{user_id}")
