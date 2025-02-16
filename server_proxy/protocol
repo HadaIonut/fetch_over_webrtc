@@ -1,28 +1,23 @@
 Fetch Over WebRTC protocol message:
 
-0        16      32                   160
-----------------------------------------
-|Total   |Current| Request Id          |
-|Parts   |Part   |   UUIDv4            |
-----------------------------------------
-|																			 |
-|						Header + Body							 |
-|																			 |
-----------------------------------------
-																		 131072
+0     4       20      36     40             328
+----------------------------------------------
+| Vers|Total   |Current| Req |  Request Id   |
+|	ion	|Parts   |Part   | type|  UUIDv4       |
+----------------------------------------------
+|																						 |
+|						Header + Body										 |
+|																						 |
+----------------------------------------------
+																					100_328
 
 
-------
-Header
-------
-Version:																			\n
-RequestType: GET/POST/PUT/DELETE							\n
 Route:																				\n
 RequestHeaders: name=value, name2=value2, ... \n
 ContentType:																	\n
-----
-Body
-----
+
+\r\n
+
 application/json:
 	- body in json format
 multipart/form-data:
@@ -34,3 +29,10 @@ FileName:																			\n
 FileType:																			\n
 -----Content in base64-----										\n
 ------------------------------------------------
+\r\n
+
+
+GET    == 0
+POST   == 1
+PUT    == 2
+DELETE == 3
