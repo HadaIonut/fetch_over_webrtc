@@ -33,6 +33,15 @@ defmodule Message do
         "DELETE" -> 3
       end
     end
+
+    def request_int_to_type(val) do
+      case val do
+        0 -> "GET"
+        1 -> "POST"
+        2 -> "PUT"
+        3 -> "DELETE"
+      end
+    end
   end
 
   defmodule Body do
@@ -56,9 +65,9 @@ defmodule Message do
           "multipart/form-data"
         ) do
       textPart =
-        "------------------------------------------------\n" <>
+        "----\n" <>
           JSON.encode!(text_content) <>
-          "\n------------------------------------------------\n"
+          "\n----\n"
 
       filesPart =
         Enum.reduce(files, "", fn %MultiPartBody.File{
@@ -68,14 +77,14 @@ defmodule Message do
                                   },
                                   acc ->
           acc <>
-            "------------------------------------------------" <>
+            "----" <>
             "\nFileName:" <>
             file_name <>
             "\nFileType:" <>
             file_type <>
             "\n" <>
             Base.encode64(file_content) <>
-            "\n------------------------------------------------"
+            "\n----\n"
         end)
 
       textPart <> filesPart
@@ -83,7 +92,113 @@ defmodule Message do
   end
 end
 
-defmodule MessageEncoder do
+defmodule WebRTCMessageDecoder do
+  alias Message.Body.MultiPartBody
+
+  def start_link(callback_pid) do
+    Task.start_link(fn -> loop(%{callback_pid: callback_pid}) end)
+  end
+
+  defp decode_request_headers(req_headers) do
+    String.split(req_headers, ", ")
+    |> Enum.reduce(%{}, fn entry, acc ->
+      [key, value] = String.split(entry, "=")
+
+      Map.put(acc, key, value)
+    end)
+  end
+
+  defp decode_body(body, "application/json") do
+    JSON.decode!(body)
+  end
+
+  defp decode_body(body, "multipart/form-data") do
+    [text | files] =
+      Regex.scan(~r/----\n(.*?)\n----/ms, body)
+      |> Enum.map(fn res ->
+        Enum.at(res, 1)
+      end)
+
+    %MultiPartBody{
+      TextContent: JSON.decode!(text),
+      Files:
+        Enum.reduce(files, [], fn cur, acc ->
+          [file_name, file_type, file_content] = String.split(cur, "\n")
+          [_, file_name] = String.split(file_name, "FileName:")
+          [_, file_type] = String.split(file_type, "FileType:")
+
+          [
+            %MultiPartBody.File{
+              FileName: file_name,
+              FileType: file_type,
+              FileContent: Base.decode64!(file_content)
+            }
+            | acc
+          ]
+        end)
+    }
+  end
+
+  defp decode(msg, req_type) do
+    [header, body] = String.split(msg, "\r\n")
+
+    [route, req_headers, content_type] =
+      header
+      |> String.split("\n")
+
+    [_, route] = String.split(route, "Route: ")
+    [_, req_headers] = String.split(req_headers, "RequestHeaders: ")
+    req_headers = decode_request_headers(req_headers)
+    [_, content_type] = String.split(content_type, "ContentType: ")
+
+    body = decode_body(body, content_type)
+
+    {%Message.Header{
+       RequestType: Message.Header.request_int_to_type(req_type),
+       Route: route,
+       RequestHeaders: req_headers,
+       ContentType: content_type
+     }, body}
+  end
+
+  defp loop(state) do
+    receive do
+      {:receive_message,
+       <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36), rest::binary>>} ->
+        new_state =
+          Map.update(
+            state,
+            id,
+            PriorityQueue.new() |> PriorityQueue.put({index, rest}),
+            fn list ->
+              list |> PriorityQueue.put({index, rest})
+            end
+          )
+
+        cur_entry = Map.get(new_state, id)
+
+        case cur_entry |> PriorityQueue.size() do
+          ^parts_count ->
+            msg =
+              PriorityQueue.to_list(cur_entry)
+              |> Enum.reduce("", fn {_, val}, acc -> acc <> val end)
+
+            decoded = decode(msg, req_type)
+
+            Map.get(state, :callback_pid)
+            |> send({:WebRTCDecoded, decoded})
+
+            Map.delete(new_state, id)
+
+          _ ->
+            new_state
+        end
+        |> loop()
+    end
+  end
+end
+
+defmodule WebRTCMessageEncoder do
   @part_size 100_000
   @version 1
 
@@ -109,6 +224,23 @@ defmodule MessageEncoder do
     }
 
     encoded = encode_message(header, body)
+
+    {:ok, pid} = Task.start_link(fn -> decoded_receiver() end)
+
+    {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(pid)
+
+    Enum.shuffle(encoded)
+    |> Enum.each(fn part -> send(decoder_pid, {:receive_message, part}) end)
+
+    nil
+  end
+
+  defp decoded_receiver() do
+    receive do
+      data ->
+        IO.inspect(data)
+        decoded_receiver()
+    end
   end
 
   def encode_message(header, body) do
@@ -137,14 +269,14 @@ defmodule MessageEncoder do
          body
        ) do
     headerText =
-      "\nRoute: " <>
+      "Route: " <>
         route <>
         "\nRequestHeaders: " <>
         Message.Header.encode_request_headers(request_headers) <>
-        "\nContentType: " <> content_type <> "\n"
+        "\nContentType: " <> content_type <> "\r\n"
 
     bodyText =
-      "\r\n" <> Message.Body.encode_body(body, content_type) <> "\r\n"
+      Message.Body.encode_body(body, content_type)
 
     headerText <> bodyText
   end

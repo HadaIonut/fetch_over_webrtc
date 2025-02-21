@@ -21,18 +21,20 @@ ContentType:																	\n
 application/json:
 	- body in json format
 multipart/form-data:
-------------------------------------------------
-Text Content in json format
-------------------------------------------------
-------------------------------------------------
+----
+Text (maybe json)
+----
+----
 FileName:																			\n
 FileType:																			\n
 -----Content in base64-----										\n
-------------------------------------------------
-\r\n
+----
 
+
+Request Types:
 
 GET    == 0
 POST   == 1
 PUT    == 2
 DELETE == 3
+
