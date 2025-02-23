@@ -70,21 +70,22 @@ defmodule Message do
           "\n----\n"
 
       filesPart =
-        Enum.reduce(files, "", fn %MultiPartBody.File{
-                                    FileName: file_name,
-                                    FileType: file_type,
-                                    FileContent: file_content
-                                  },
-                                  acc ->
-          acc <>
-            "----" <>
-            "\nFileName:" <>
-            file_name <>
-            "\nFileType:" <>
-            file_type <>
-            "\n" <>
-            Base.encode64(file_content) <>
-            "\n----\n"
+        Enum.reduce(files, "", fn
+          %MultiPartBody.File{
+            FileName: file_name,
+            FileType: file_type,
+            FileContent: file_content
+          },
+          acc ->
+            acc <>
+              "----" <>
+              "\nFileName:" <>
+              file_name <>
+              "\nFileType:" <>
+              file_type <>
+              "\n" <>
+              Base.encode64(file_content) <>
+              "\n----\n"
         end)
 
       textPart <> filesPart
@@ -165,6 +166,8 @@ defmodule WebRTCMessageDecoder do
     receive do
       {:receive_message,
        <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36), rest::binary>>} ->
+        IO.inspect("recieved something #{id} #{index}/#{parts_count}")
+
         new_state =
           Map.update(
             state,
@@ -187,6 +190,8 @@ defmodule WebRTCMessageDecoder do
 
             Map.get(state, :callback_pid)
             |> send({:WebRTCDecoded, decoded})
+
+            IO.inspect("decoded")
 
             Map.delete(new_state, id)
 

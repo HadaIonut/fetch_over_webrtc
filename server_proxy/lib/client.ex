@@ -129,7 +129,35 @@ defmodule Client do
           Map.get(state, room)
           |> Map.get(owner)
 
-        ExWebRTC.PeerConnection.send_data(pc, data_channel, "fjsdakfjdlks")
+        header = %Message.Header{
+          RequestType: "GET",
+          Route: "/ligma",
+          RequestHeaders: %{header1: "myInteligentValue", header2: "myOtherInteligentValue"},
+          ContentType: "multipart/form-data"
+        }
+
+        f1 = File.read!("protocol")
+
+        file = %Message.Body.MultiPartBody.File{
+          FileName: "protocol",
+          FileType: "text",
+          FileContent: f1
+        }
+
+        body = %Message.Body.MultiPartBody{
+          TextContent: "fjdsklfjdsklfjsdakl",
+          Files: [file, file, file, file, file, file, file, file, file, file, file, file]
+        }
+
+        encoded = WebRTCMessageEncoder.encode_message(header, body)
+
+        IO.inspect(data_channel)
+
+        Enum.each(encoded, fn part ->
+          IO.inspect("sening")
+          ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
+        end)
+
         loop(state)
     end
   end

@@ -83,11 +83,16 @@ defmodule Server do
 
       {:send_message, msg} ->
         Map.get(state, "socket_pid") |> WebSockex.send_frame({:text, msg})
+        loop(state)
 
       {:ex_webrtc, pc, msg} ->
         Map.get(state, pc)
         |> send(msg)
 
+        loop(state)
+
+      unknown ->
+        IO.inspect("unknown message received #{unknown}")
         loop(state)
     end
   end
@@ -96,27 +101,43 @@ end
 defmodule WebRTCHandler do
   require Logger
 
-  defstruct [:peer_connection, :room_id, :user_id, :parent_pid]
+  defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
   def start_link(peer_connection, room_id, user_id, parent_pid) do
-    Task.start_link(fn ->
-      loop(%WebRTCHandler{
-        peer_connection: peer_connection,
-        room_id: room_id,
-        user_id: user_id,
-        parent_pid: parent_pid
-      })
-    end)
+    {:ok, pid} =
+      Task.start_link(fn ->
+        loop(%WebRTCHandler{
+          peer_connection: peer_connection,
+          room_id: room_id,
+          user_id: user_id,
+          parent_pid: parent_pid
+        })
+      end)
   end
 
   defp loop(
-         %{peer_connection: pc, room_id: room_id, user_id: user_id, parent_pid: parent_pid} =
-           state
+         %{
+           peer_connection: pc,
+           room_id: room_id,
+           user_id: user_id,
+           parent_pid: parent_pid,
+           decoder_pid: decoder_pid
+         } = state
        ) do
     receive do
       {:data, _data_channel, data} ->
-        Logger.warning("Received data: #{data} from #{room_id} #{user_id}")
-        loop(state)
+        Logger.warning("Received data from #{room_id} #{user_id}")
+
+        {new_state, decoder_pid} =
+          if decoder_pid == nil do
+            {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(self())
+            {Map.put(state, :decoder_pid, decoder_pid), decoder_pid}
+          else
+            {state, decoder_pid}
+          end
+
+        send(decoder_pid, {:receive_message, data})
+        loop(new_state)
 
       {:ice_candidate, candidate} ->
         request_id = UUID.uuid4()
@@ -131,6 +152,14 @@ defmodule WebRTCHandler do
 
         send(parent_pid, {:send_message, message})
 
+        loop(state)
+
+      {:WebRTCDecoded, decoded} ->
+        IO.inspect(decoded)
+        loop(state)
+
+      unknown ->
+        IO.inspect("unknown message received #{unknown}")
         loop(state)
     end
   end
