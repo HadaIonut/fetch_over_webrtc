@@ -201,8 +201,10 @@ fn room_leave(rooms: Rooms, room_id, user_id) {
             new_rooms
             |> dict.get(room_id)
 
-          room
-          |> room_encoder()
+          json.object([
+            #("type", json.string("userLeft")),
+            #("room", room_encoder(room)),
+          ])
           |> json.to_string()
           |> server_state.SendNotifications()
           |> notify_connections(room, user_id, _)

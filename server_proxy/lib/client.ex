@@ -122,6 +122,10 @@ defmodule Client do
 
         loop(state)
 
+      {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
+        IO.inspect("CONNECTION ESTABLISHED")
+        loop(state)
+
       {:test} ->
         {room, owner} = Map.get(state, "connection")
 

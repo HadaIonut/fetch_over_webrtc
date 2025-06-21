@@ -29,8 +29,27 @@ defmodule SocketHandler do
       when type in @reply_message_types ->
         send(state.negociator_pid, {:resolve_request, request_id, res})
 
-      {:ok, %{"type" => type}} when type == "userJoined" ->
-        Logger.info("user joined")
+      {:ok, %{"type" => type, "room" => room}} when type == "userJoined" ->
+        send(
+          state.parent,
+          {:user_joined,
+           %{"roomId" => Map.get(room, "room_id"), "members" => Map.get(room, "members")}}
+        )
+
+      {:ok, %{"type" => type, "room" => room}} when type == "userLeft" ->
+        send(
+          state.parent,
+          {:user_left,
+           %{"roomId" => Map.get(room, "room_id"), "members" => Map.get(room, "members")}}
+        )
+
+      {:ok, %{"type" => type}} when type == "userLeft" ->
+        send(state.parent, {:user_left})
+        Logger.info("user left")
+
+      {:ok, %{"type" => type} = res} when type == "ICECandidate" ->
+        Logger.info("Ice Candidate received ")
+        send(state.parent, {:ice_candidate, res})
 
       {:ok, %{"type" => type} = res} when type == "userOffer" ->
         Logger.info("user offer received")

@@ -35,8 +35,6 @@ pub fn decoder() {
   use msg_type <- decode.field("type", decode.string)
   use req_id <- decode.field("requestId", decode.string)
 
-  io.debug(msg_type)
-
   case string.lowercase(msg_type) {
     "join" -> {
       use room_id <- decode.field("roomId", decode.string)

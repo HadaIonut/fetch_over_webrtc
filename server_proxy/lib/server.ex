@@ -23,7 +23,7 @@ defmodule Server do
 
   defp start_connection(%{"sdpCert" => cert, "roomId" => room_id, "sourceUserId" => user_id}) do
     {:ok, pc} =
-      ExWebRTC.PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
+      ExWebRTC.PeerConnection.start(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
 
     cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
     ExWebRTC.PeerConnection.set_remote_description(pc, cert)
@@ -54,11 +54,32 @@ defmodule Server do
 
         loop(state)
 
+      {:user_joined, %{"roomId" => room_id, "members" => members}} ->
+        Enum.filter(members, fn %{"id" => mem_id} ->
+          Map.get(state, "#{room_id}_#{mem_id}") == nil
+        end)
+        |> Enum.into(state, fn %{"id" => mem_id} -> {"#{room_id}_#{mem_id}", {}} end)
+        |> loop()
+
+      {:user_left, %{"roomId" => room_id, "members" => members}} ->
+        members = members |> Enum.map(fn %{"id" => mem_id} -> mem_id end)
+
+        to_remove =
+          Map.keys(state)
+          |> Enum.filter(fn key ->
+            key != "socket_pid" && !is_pid(key)
+          end)
+          |> Enum.filter(fn key ->
+            !Enum.member?(members, String.split(key, "_") |> Enum.at(1))
+          end)
+
+        Map.drop(state, to_remove) |> loop()
+
       {:sdp_offered, data} ->
         {message, room_id, user_id, peer_connection} = start_connection(data)
         Map.get(state, "socket_pid") |> WebSockex.send_frame({:text, message})
 
-        {:ok, pid} = WebRTCHandler.start_link(peer_connection, room_id, user_id, self())
+        {:ok, pid} = WebRTCHandler.start(peer_connection, room_id, user_id, self())
 
         Map.put(state, peer_connection, pid)
         |> Map.put("#{room_id}_#{user_id}", {peer_connection, pid})
@@ -92,7 +113,7 @@ defmodule Server do
         loop(state)
 
       unknown ->
-        IO.inspect("unknown message received #{unknown}")
+        IO.inspect("unknown message received #{inspect(unknown)}")
         loop(state)
     end
   end
@@ -103,9 +124,9 @@ defmodule WebRTCHandler do
 
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
-  def start_link(peer_connection, room_id, user_id, parent_pid) do
+  def start(peer_connection, room_id, user_id, parent_pid) do
     {:ok, pid} =
-      Task.start_link(fn ->
+      Task.start(fn ->
         loop(%WebRTCHandler{
           peer_connection: peer_connection,
           room_id: room_id,
@@ -158,8 +179,12 @@ defmodule WebRTCHandler do
         IO.inspect(decoded)
         loop(state)
 
+      {:ice_connection_state_change, :completed} ->
+        IO.inspect("CONNECTION ESTABLISHED")
+        loop(state)
+
       unknown ->
-        IO.inspect("unknown message received #{unknown}")
+        IO.inspect("unknown message received #{inspect(unknown)}")
         loop(state)
     end
   end
