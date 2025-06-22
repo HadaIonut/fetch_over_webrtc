@@ -80,6 +80,22 @@ defmodule Client do
         cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
         :ok = ExWebRTC.PeerConnection.set_remote_description(pc, cert)
 
+        {:ok, pid} = WebRTCHandler.start(pc, room_id, user_id, self())
+
+        Map.put(state, "handler_pid", pid)
+        |> loop()
+
+      {:WebRTCDecoded, room_id, user_id, {header, body}} ->
+        IO.inspect(header)
+
+        loop(state)
+
+      {:ex_webrtc, _pc, {:data, _, _} = msg} ->
+        Map.get(state, "handler_pid")
+        |> send(msg)
+
+        IO.inspect("something?")
+
         loop(state)
 
       {:add_connection, pc, data_channel, room, owner} ->
@@ -135,8 +151,11 @@ defmodule Client do
 
         header = %Message.Header{
           RequestType: "GET",
-          Route: "/ligma",
-          RequestHeaders: %{header1: "myInteligentValue", header2: "myOtherInteligentValue"},
+          Route: "http://localhost:6969/ligma",
+          RequestHeaders: %{
+            "header1" => "myInteligentValue",
+            "header2" => "myOtherInteligentValue"
+          },
           ContentType: "multipart/form-data"
         }
 

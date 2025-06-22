@@ -17,7 +17,7 @@ defmodule WebRTCHandler do
 
   defp loop(
          %{
-           peer_connection: _pc,
+           peer_connection: pc,
            room_id: room_id,
            user_id: user_id,
            parent_pid: parent_pid,
@@ -30,7 +30,7 @@ defmodule WebRTCHandler do
 
         {new_state, decoder_pid} =
           if decoder_pid == nil do
-            {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(self())
+            {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(parent_pid, room_id, user_id)
             {Map.put(state, :decoder_pid, decoder_pid), decoder_pid}
           else
             {state, decoder_pid}
@@ -38,6 +38,11 @@ defmodule WebRTCHandler do
 
         send(decoder_pid, {:receive_message, data})
         loop(new_state)
+
+      {:data_channel, data_channel} ->
+        send(parent_pid, {:opened_data_channel, room_id, user_id, Map.get(data_channel, :ref)})
+
+        loop(state)
 
       {:ice_candidate, candidate} ->
         request_id = UUID.uuid4()
@@ -52,10 +57,6 @@ defmodule WebRTCHandler do
 
         send(parent_pid, {:send_message, message})
 
-        loop(state)
-
-      {:WebRTCDecoded, decoded} ->
-        IO.inspect(decoded)
         loop(state)
 
       {:ice_connection_state_change, :completed} ->

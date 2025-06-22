@@ -20,7 +20,7 @@ defmodule Message do
     def encode_request_headers(headers) do
       Map.keys(headers)
       |> Enum.reduce("", fn val, acc ->
-        acc <> Atom.to_string(val) <> "=" <> Map.fetch!(headers, val) <> ", "
+        acc <> val <> "=" <> Map.fetch!(headers, val) <> ", "
       end)
       |> String.trim_trailing(", ")
     end
@@ -97,8 +97,10 @@ defmodule WebRTCMessageDecoder do
   alias Message.Body.MultiPartBody
   @current_version 1
 
-  def start_link(callback_pid) do
-    Task.start_link(fn -> loop(%{callback_pid: callback_pid}) end)
+  def start_link(callback_pid, room_id, user_id) do
+    Task.start_link(fn ->
+      loop(%{callback_pid: callback_pid, room_id: room_id, user_id: user_id})
+    end)
   end
 
   defp decode_request_headers(req_headers) do
@@ -191,9 +193,7 @@ defmodule WebRTCMessageDecoder do
             decoded = decode(msg, req_type)
 
             Map.get(state, :callback_pid)
-            |> send({:WebRTCDecoded, decoded})
-
-            IO.inspect("decoded")
+            |> send({:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), decoded})
 
             Map.delete(new_state, id)
 

@@ -63,7 +63,7 @@ defmodule Server do
 
         update_in(state, ["rooms", room_id], fn room_data ->
           Enum.reduce(new_users, room_data, fn elem, acc ->
-            Map.put(acc, elem, {})
+            Map.put(acc, elem, [])
           end)
         end)
         |> loop()
@@ -77,7 +77,7 @@ defmodule Server do
           |> Enum.filter(fn key -> !Enum.member?(members, key) end)
 
         Enum.reduce(to_remove, to_remove, fn elem, acc ->
-          {peer_connection, pid} = get_in(state, ["rooms", room_id, elem])
+          [peer_connection, pid | _rest] = get_in(state, ["rooms", room_id, elem])
           Process.exit(peer_connection, :kill)
           Process.exit(pid, :kill)
 
@@ -104,7 +104,7 @@ defmodule Server do
 
         # bullshit mapping pc -> pid at global root because i have no other way to identify who is who without it
         Map.put(state, peer_connection, pid)
-        |> put_in(["rooms", room_id, user_id], {peer_connection, pid})
+        |> put_in(["rooms", room_id, user_id], [peer_connection, pid])
         |> loop()
 
       {:add_socket, socket_pid} ->
@@ -118,7 +118,7 @@ defmodule Server do
        }} ->
         ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
 
-        {pc, _} = get_in(state, ["rooms", source_room_id, source_user_id])
+        [pc, _] = get_in(state, ["rooms", source_room_id, source_user_id])
 
         ExWebRTC.PeerConnection.add_ice_candidate(pc, ice_candidate)
 
@@ -129,10 +129,29 @@ defmodule Server do
         loop(state)
 
       {:ex_webrtc, pc, msg} ->
-        Map.get(state, pc)
-        |> send(msg)
+        try do
+          Map.get(state, pc)
+          |> send(msg)
+        catch
+          e -> IO.inspect(e)
+        end
 
         loop(state)
+
+      {:WebRTCDecoded, room_id, user_id, {header, body}} ->
+        [pc, _, data_channel] = get_in(state, ["rooms", room_id, user_id])
+        encoded = WebRTCMessageEncoder.encode_message(header, body)
+
+        Enum.each(encoded, fn part ->
+          IO.inspect("sening")
+          ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
+        end)
+
+        loop(state)
+
+      {:opened_data_channel, room_id, user_id, data_channel} ->
+        update_in(state, ["rooms", room_id, user_id], fn [pc, pid] -> [pc, pid, data_channel] end)
+        |> loop()
 
       unknown ->
         IO.inspect("unknown message received #{inspect(unknown)}")
