@@ -47,12 +47,15 @@ defmodule Server do
     receive do
       {:start} ->
         {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
+        {:ok, proxy_pid} = ServerProxy.start(self())
 
         send(self(), {:add_socket, socket_pid})
 
         room_id = send_create_room_message(socket_pid, negociator_pid)
 
-        put_in(state, ["rooms", room_id], %{}) |> loop()
+        put_in(state, ["rooms", room_id], %{})
+        |> put_in(["proxy_pid"], proxy_pid)
+        |> loop()
 
       {:user_joined, %{"roomId" => room_id, "members" => members}} ->
         new_users =
@@ -138,14 +141,11 @@ defmodule Server do
 
         loop(state)
 
-      {:WebRTCDecoded, room_id, user_id, {header, body}} ->
+      {:WebRTCDecoded, room_id, user_id, msg} ->
         [pc, _, data_channel] = get_in(state, ["rooms", room_id, user_id])
-        encoded = WebRTCMessageEncoder.encode_message(header, body)
 
-        Enum.each(encoded, fn part ->
-          IO.inspect("sening")
-          ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
-        end)
+        Map.get(state, "proxy_pid")
+        |> send({:relay, msg, pc, data_channel})
 
         loop(state)
 

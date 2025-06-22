@@ -60,6 +60,10 @@ defmodule Message do
       JSON.encode!(body)
     end
 
+    def encode_body(%{}, "") do
+      ""
+    end
+
     def encode_body(
           %MultiPartBody{TextContent: text_content, Files: files},
           "multipart/form-data"
@@ -104,12 +108,22 @@ defmodule WebRTCMessageDecoder do
   end
 
   defp decode_request_headers(req_headers) do
-    String.split(req_headers, ", ")
-    |> Enum.reduce(%{}, fn entry, acc ->
-      [key, value] = String.split(entry, "=")
+    case String.length(req_headers) do
+      0 ->
+        %{}
 
-      Map.put(acc, key, value)
-    end)
+      _ ->
+        String.split(req_headers, ", ")
+        |> Enum.reduce(%{}, fn entry, acc ->
+          [key, value] = String.split(entry, "=")
+
+          Map.put(acc, key, value)
+        end)
+    end
+  end
+
+  defp decode_body("", "") do
+    ""
   end
 
   defp decode_body(body, "application/json") do
@@ -147,8 +161,7 @@ defmodule WebRTCMessageDecoder do
     [header, body] = String.split(msg, "\r\n")
 
     [route, req_headers, content_type] =
-      header
-      |> String.split("\n")
+      header |> String.split("\n")
 
     [_, route] = String.split(route, "Route: ")
     [_, req_headers] = String.split(req_headers, "RequestHeaders: ")
@@ -238,6 +251,12 @@ defmodule WebRTCMessageEncoder do
          },
          body
        ) do
+    content_type =
+      case content_type do
+        nil -> ""
+        content_type -> content_type
+      end
+
     headerText =
       "Route: " <>
         route <>

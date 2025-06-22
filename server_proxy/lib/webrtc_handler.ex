@@ -17,7 +17,7 @@ defmodule WebRTCHandler do
 
   defp loop(
          %{
-           peer_connection: pc,
+           peer_connection: _pc,
            room_id: room_id,
            user_id: user_id,
            parent_pid: parent_pid,

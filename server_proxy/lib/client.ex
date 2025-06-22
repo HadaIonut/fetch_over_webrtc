@@ -85,7 +85,8 @@ defmodule Client do
         Map.put(state, "handler_pid", pid)
         |> loop()
 
-      {:WebRTCDecoded, room_id, user_id, {header, body}} ->
+      {:WebRTCDecoded, _room_id, _user_id, {header, body}} ->
+        IO.inspect(body)
         IO.inspect(header)
 
         loop(state)
@@ -93,8 +94,6 @@ defmodule Client do
       {:ex_webrtc, _pc, {:data, _, _} = msg} ->
         Map.get(state, "handler_pid")
         |> send(msg)
-
-        IO.inspect("something?")
 
         loop(state)
 
@@ -150,12 +149,9 @@ defmodule Client do
           |> Map.get(owner)
 
         header = %Message.Header{
-          RequestType: "GET",
-          Route: "http://localhost:6969/ligma",
-          RequestHeaders: %{
-            "header1" => "myInteligentValue",
-            "header2" => "myOtherInteligentValue"
-          },
+          RequestType: "POST",
+          Route: "http://localhost:8080/upload",
+          RequestHeaders: %{},
           ContentType: "multipart/form-data"
         }
 
@@ -168,16 +164,15 @@ defmodule Client do
         }
 
         body = %Message.Body.MultiPartBody{
-          TextContent: "fjdsklfjdsklfjsdakl",
-          Files: [file, file, file, file, file, file, file, file, file, file, file, file]
+          TextContent: %{
+            "description" => "fjsklafjdslka"
+          },
+          Files: [file]
         }
 
         encoded = WebRTCMessageEncoder.encode_message(header, body)
 
-        IO.inspect(data_channel)
-
         Enum.each(encoded, fn part ->
-          IO.inspect("sening")
           ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
         end)
 

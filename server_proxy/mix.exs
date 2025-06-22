@@ -29,7 +29,9 @@ defmodule ServerProxy.MixProject do
       {:ex_sctp, "~> 0.1.0"},
       {:typed_struct, "~> 0.1.4"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:priority_queue, "~> 1.1"}
+      {:priority_queue, "~> 1.1"},
+      {:multipart, "~> 0.4.0"},
+      {:req, "~> 0.5.0"}
     ]
   end
 end
