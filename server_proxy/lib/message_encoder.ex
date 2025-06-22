@@ -95,6 +95,7 @@ end
 
 defmodule WebRTCMessageDecoder do
   alias Message.Body.MultiPartBody
+  @current_version 1
 
   def start_link(callback_pid) do
     Task.start_link(fn -> loop(%{callback_pid: callback_pid}) end)
@@ -165,7 +166,8 @@ defmodule WebRTCMessageDecoder do
   defp loop(state) do
     receive do
       {:receive_message,
-       <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36), rest::binary>>} ->
+       <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36), rest::binary>>}
+      when version == @current_version ->
         IO.inspect("recieved something #{id} #{index}/#{parts_count}")
 
         new_state =
@@ -199,6 +201,10 @@ defmodule WebRTCMessageDecoder do
             new_state
         end
         |> loop()
+
+      {:receive_message, <<version::4, _rest::binary>>} when version != @current_version ->
+        IO.inspect("Received packet with wrong version")
+        loop(state)
     end
   end
 end
@@ -206,47 +212,6 @@ end
 defmodule WebRTCMessageEncoder do
   @part_size 100_000
   @version 1
-
-  def test() do
-    header = %Message.Header{
-      RequestType: "GET",
-      Route: "/ligma",
-      RequestHeaders: %{header1: "myInteligentValue", header2: "myOtherInteligentValue"},
-      ContentType: "multipart/form-data"
-    }
-
-    f1 = File.read!("protocol")
-
-    file = %Message.Body.MultiPartBody.File{
-      FileName: "protocol",
-      FileType: "text",
-      FileContent: f1
-    }
-
-    body = %Message.Body.MultiPartBody{
-      TextContent: "fjdsklfjdsklfjsdakl",
-      Files: [file, file, file, file, file, file, file, file, file, file, file, file]
-    }
-
-    encoded = encode_message(header, body)
-
-    {:ok, pid} = Task.start_link(fn -> decoded_receiver() end)
-
-    {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(pid)
-
-    Enum.shuffle(encoded)
-    |> Enum.each(fn part -> send(decoder_pid, {:receive_message, part}) end)
-
-    nil
-  end
-
-  defp decoded_receiver() do
-    receive do
-      data ->
-        IO.inspect(data)
-        decoded_receiver()
-    end
-  end
 
   def encode_message(header, body) do
     text = get_text_content(header, body)

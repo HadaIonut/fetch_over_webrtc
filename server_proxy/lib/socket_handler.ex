@@ -43,10 +43,6 @@ defmodule SocketHandler do
            %{"roomId" => Map.get(room, "room_id"), "members" => Map.get(room, "members")}}
         )
 
-      {:ok, %{"type" => type}} when type == "userLeft" ->
-        send(state.parent, {:user_left})
-        Logger.info("user left")
-
       {:ok, %{"type" => type} = res} when type == "ICECandidate" ->
         Logger.info("Ice Candidate received ")
         send(state.parent, {:ice_candidate, res})

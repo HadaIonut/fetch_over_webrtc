@@ -2,7 +2,7 @@ defmodule Server do
   require Logger
 
   def start() do
-    {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
+    {:ok, parent_pid} = Task.start_link(fn -> loop(%{"rooms" => %{}}) end)
 
     send(parent_pid, {:start})
   end
@@ -17,7 +17,7 @@ defmodule Server do
     send(negociator_pid, {:add_pending, request_id, self()})
 
     receive do
-      {:resolved, value} -> IO.inspect(value)
+      {:resolved, %{"requestId" => _, "roomId" => room_id, "type" => _}} -> room_id
     end
   end
 
@@ -44,36 +44,65 @@ defmodule Server do
   end
 
   defp loop(state) do
+    IO.inspect(state)
+
     receive do
       {:start} ->
         {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
 
         send(self(), {:add_socket, socket_pid})
 
-        send_create_room_message(socket_pid, negociator_pid)
+        room_id = send_create_room_message(socket_pid, negociator_pid)
 
-        loop(state)
+        put_in(state, ["rooms", room_id], %{}) |> loop()
 
       {:user_joined, %{"roomId" => room_id, "members" => members}} ->
-        Enum.filter(members, fn %{"id" => mem_id} ->
-          Map.get(state, "#{room_id}_#{mem_id}") == nil
+        new_users =
+          Enum.filter(members, fn %{"id" => mem_id} ->
+            get_in(state, ["rooms", room_id, mem_id]) == nil
+          end)
+          |> Enum.map(fn %{"id" => elem} -> elem end)
+
+        update_in(state, ["rooms", room_id], fn room_data ->
+          Enum.reduce(new_users, room_data, fn elem, acc ->
+            Map.put(acc, elem, {})
+          end)
         end)
-        |> Enum.into(state, fn %{"id" => mem_id} -> {"#{room_id}_#{mem_id}", {}} end)
         |> loop()
 
       {:user_left, %{"roomId" => room_id, "members" => members}} ->
-        members = members |> Enum.map(fn %{"id" => mem_id} -> mem_id end)
+        members = Enum.map(members, fn %{"id" => mem_id} -> mem_id end)
 
         to_remove =
-          Map.keys(state)
+          get_in(state, ["rooms", room_id])
+          |> Map.keys()
           |> Enum.filter(fn key ->
-            key != "socket_pid" && !is_pid(key)
-          end)
-          |> Enum.filter(fn key ->
-            !Enum.member?(members, String.split(key, "_") |> Enum.at(1))
+            case key do
+              val when is_pid(val) -> false
+              val when val == "socket_pid" -> false
+              val -> !Enum.member?(members, val)
+            end
           end)
 
-        Map.drop(state, to_remove) |> loop()
+        Enum.reduce(to_remove, to_remove, fn elem, acc ->
+          {peer_connection, pid} = get_in(state, ["rooms", room_id, elem])
+          Process.exit(peer_connection, :normal)
+          Process.exit(pid, :normal)
+
+          [peer_connection] ++ acc
+        end)
+        |> Enum.reduce(state, fn elem, acc ->
+          case elem do
+            val when is_pid(val) ->
+              {_, new_data} = pop_in(acc, [val])
+              new_data
+
+            val ->
+              {_, new_data} = pop_in(acc, ["rooms", room_id, val])
+              new_data
+          end
+        end)
+        |> loop()
 
       {:sdp_offered, data} ->
         {message, room_id, user_id, peer_connection} = start_connection(data)
@@ -81,8 +110,9 @@ defmodule Server do
 
         {:ok, pid} = WebRTCHandler.start(peer_connection, room_id, user_id, self())
 
+        # bullshit mapping pc -> pid at global root because i have no other way to identify who is who without it
         Map.put(state, peer_connection, pid)
-        |> Map.put("#{room_id}_#{user_id}", {peer_connection, pid})
+        |> put_in(["rooms", room_id, user_id], {peer_connection, pid})
         |> loop()
 
       {:add_socket, socket_pid} ->
@@ -96,7 +126,7 @@ defmodule Server do
        }} ->
         ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
 
-        {pc, _} = Map.get(state, "#{source_room_id}_#{source_user_id}")
+        {pc, _} = get_in(state, ["rooms", source_room_id, source_user_id])
 
         ExWebRTC.PeerConnection.add_ice_candidate(pc, ice_candidate)
 
@@ -125,7 +155,7 @@ defmodule WebRTCHandler do
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
   def start(peer_connection, room_id, user_id, parent_pid) do
-    {:ok, pid} =
+    {:ok, _pid} =
       Task.start(fn ->
         loop(%WebRTCHandler{
           peer_connection: peer_connection,
@@ -138,7 +168,7 @@ defmodule WebRTCHandler do
 
   defp loop(
          %{
-           peer_connection: pc,
+           peer_connection: _pc,
            room_id: room_id,
            user_id: user_id,
            parent_pid: parent_pid,
