@@ -1,6 +1,40 @@
 defmodule ServerProxy do
+  @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
+
   def start(callback_pid) do
     Task.start(fn -> loop(%{callback_pid: callback_pid}) end)
+  end
+
+  defp multipart_req(headers, body, route, request_type) do
+    headers = Map.drop(headers, ["Content-Type"])
+    IO.inspect(body)
+    textContent = Map.get(body, :TextContent)
+
+    multiparts_text =
+      textContent
+      |> Map.keys()
+      |> Enum.reduce(%{}, fn elem, acc ->
+        Map.put(acc, elem, Map.get(textContent, elem))
+      end)
+
+    IO.inspect(multiparts_text)
+
+    multipart =
+      Map.get(body, :Files)
+      |> Enum.reduce(multiparts_text, fn elem, acc ->
+        Map.put(
+          acc,
+          Map.get(elem, :FileName),
+          {Map.get(elem, :FileContent), filename: Map.get(elem, :FileName)}
+        )
+      end)
+
+    Req.new(
+      url: route,
+      headers: headers,
+      method: request_type,
+      form_multipart: multipart
+    )
   end
 
   defp loop(state) do
@@ -27,42 +61,22 @@ defmodule ServerProxy do
               Req.new(url: route, headers: headers, method: request_type, json: body)
 
             "multipart/form-data" ->
-              headers = Map.drop(headers, ["Content-Type"])
-              IO.inspect(body)
-              textContent = Map.get(body, :TextContent)
+              multipart_req(headers, body, route, request_type)
 
-              multiparts_text =
-                textContent
-                |> Map.keys()
-                |> Enum.reduce(%{}, fn elem, acc ->
-                  Map.put(acc, elem, Map.get(textContent, elem))
-                end)
-
-              IO.inspect(multiparts_text)
-
-              multipart =
-                Map.get(body, :Files)
-                |> Enum.reduce(multiparts_text, fn elem, acc ->
-                  Map.put(
-                    acc,
-                    Map.get(elem, :FileName),
-                    {Map.get(elem, :FileContent), filename: Map.get(elem, :FileName)}
-                  )
-                end)
-
-              Req.new(
-                url: route,
-                headers: headers,
-                method: request_type,
-                form_multipart: multipart
-              )
+            val when val in @text_encoding_types ->
+              Req.new(url: route, headers: headers, method: request_type, body: body)
           end
 
         {_, resp} = Req.run(req)
 
+        resp_header =
+          resp.headers["content-type"] |> Enum.at(0) |> String.split(";") |> Enum.at(0)
+
+        IO.inspect(resp_header)
+
         encoded =
           req_headers
-          |> Map.put(:ContentType, "application/json")
+          |> Map.put(:ContentType, resp_header)
           |> WebRTCMessageEncoder.encode_message(resp.body)
 
         Enum.each(encoded, fn part ->

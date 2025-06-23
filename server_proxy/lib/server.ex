@@ -135,8 +135,8 @@ defmodule Server do
         try do
           Map.get(state, pc)
           |> send(msg)
-        catch
-          e -> IO.inspect(e)
+        rescue
+          e in ArgumentError -> IO.inspect(e)
         end
 
         loop(state)

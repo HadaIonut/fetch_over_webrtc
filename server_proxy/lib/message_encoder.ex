@@ -45,9 +45,7 @@ defmodule Message do
   end
 
   defmodule Body do
-    defmodule AppJsonBody do
-    end
-
+    @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
     defmodule MultiPartBody do
       defstruct [:TextContent, :Files]
 
@@ -56,11 +54,21 @@ defmodule Message do
       end
     end
 
+    def encode_body(body, encoding_type)
+        when is_binary(body)
+        when encoding_type in @text_encoding_types do
+      body
+    end
+
     def encode_body(body, "application/json") do
       JSON.encode!(body)
     end
 
     def encode_body(%{}, "") do
+      ""
+    end
+
+    def encode_body("", "") do
       ""
     end
 
@@ -100,6 +108,7 @@ end
 defmodule WebRTCMessageDecoder do
   alias Message.Body.MultiPartBody
   @current_version 1
+  @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
 
   def start_link(callback_pid, room_id, user_id) do
     Task.start_link(fn ->
@@ -120,6 +129,11 @@ defmodule WebRTCMessageDecoder do
           Map.put(acc, key, value)
         end)
     end
+  end
+
+  defp decode_body(body, encoding_type)
+       when encoding_type in @text_encoding_types do
+    body
   end
 
   defp decode_body("", "") do
