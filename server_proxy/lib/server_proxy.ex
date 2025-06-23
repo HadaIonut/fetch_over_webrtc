@@ -7,7 +7,6 @@ defmodule ServerProxy do
 
   defp multipart_req(headers, body, route, request_type) do
     headers = Map.drop(headers, ["Content-Type"])
-    IO.inspect(body)
     textContent = Map.get(body, :TextContent)
 
     multiparts_text =
@@ -16,8 +15,6 @@ defmodule ServerProxy do
       |> Enum.reduce(%{}, fn elem, acc ->
         Map.put(acc, elem, Map.get(textContent, elem))
       end)
-
-    IO.inspect(multiparts_text)
 
     multipart =
       Map.get(body, :Files)
@@ -45,7 +42,7 @@ defmodule ServerProxy do
           Route: route,
           RequestHeaders: request_headers,
           ContentType: content_type
-        } = req_headers, body}, peer_connection, data_channel} ->
+        } = req_headers, body}, request_id, peer_connection, data_channel} ->
         headers =
           case content_type do
             "" -> request_headers
@@ -72,12 +69,10 @@ defmodule ServerProxy do
         resp_header =
           resp.headers["content-type"] |> Enum.at(0) |> String.split(";") |> Enum.at(0)
 
-        IO.inspect(resp_header)
-
         encoded =
           req_headers
           |> Map.put(:ContentType, resp_header)
-          |> WebRTCMessageEncoder.encode_message(resp.body)
+          |> WebRTCMessageEncoder.encode_message(resp.body, request_id)
 
         Enum.each(encoded, fn part ->
           ExWebRTC.PeerConnection.send_data(peer_connection, data_channel, part)

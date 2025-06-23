@@ -220,7 +220,9 @@ defmodule WebRTCMessageDecoder do
             decoded = decode(msg, req_type)
 
             Map.get(state, :callback_pid)
-            |> send({:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), decoded})
+            |> send(
+              {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), id, decoded}
+            )
 
             Map.delete(new_state, id)
 
@@ -240,15 +242,13 @@ defmodule WebRTCMessageEncoder do
   @part_size 100_000
   @version 1
 
-  def encode_message(header, body) do
+  def encode_message(header, body, id \\ UUID.uuid4()) do
     text = get_text_content(header, body)
 
     req_type = Map.get(header, :RequestType) |> Message.Header.request_type_to_int()
 
     parts_count = ceil(bit_size(text) / @part_size)
     parts = BitUtils.chunks(text, @part_size)
-
-    id = UUID.uuid4()
 
     Enum.with_index(parts)
     |> Enum.map(fn {part, index} ->

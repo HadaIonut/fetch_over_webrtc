@@ -141,11 +141,11 @@ defmodule Server do
 
         loop(state)
 
-      {:WebRTCDecoded, room_id, user_id, msg} ->
+      {:WebRTCDecoded, room_id, user_id, request_id, msg} ->
         [pc, _, data_channel] = get_in(state, ["rooms", room_id, user_id])
 
         Map.get(state, "proxy_pid")
-        |> send({:relay, msg, pc, data_channel})
+        |> send({:relay, msg, request_id, pc, data_channel})
 
         loop(state)
 

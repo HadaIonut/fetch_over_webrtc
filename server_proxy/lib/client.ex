@@ -4,12 +4,14 @@ defmodule Client do
   def start(room_id) do
     {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
 
-    send(parent_pid, {:start, room_id})
-    parent_pid
-  end
+    send(parent_pid, {:start, room_id, self()})
 
-  def send_test_rtc_msg(parent_pid) do
-    send(parent_pid, {:test})
+    receive do
+      {:connection_established} ->
+        nil
+    end
+
+    parent_pid
   end
 
   defp send_join_room_message(socket_pid, negociator_pid, room_id) do
@@ -63,7 +65,7 @@ defmodule Client do
 
   defp loop(state) do
     receive do
-      {:start, room_id} ->
+      {:start, room_id, callback_pid} ->
         {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
 
         {pc, data_channel, room, owner} =
@@ -72,6 +74,7 @@ defmodule Client do
         send(self(), {:add_connection, pc, data_channel, room, owner})
 
         Map.put(state, "connection", {room, owner})
+        |> Map.put("callback_pid", callback_pid)
         |> Map.put("pids", {negociator_pid, socket_pid})
         |> loop()
 
@@ -85,9 +88,9 @@ defmodule Client do
         Map.put(state, "handler_pid", pid)
         |> loop()
 
-      {:WebRTCDecoded, _room_id, _user_id, {header, body}} ->
-        IO.inspect(body)
-        IO.inspect(header)
+      {:WebRTCDecoded, _room_id, _user_id, request_id, message} ->
+        Map.get(state, "callback_pid")
+        |> send({:WebRTCDecoded, request_id, message})
 
         loop(state)
 
@@ -138,39 +141,19 @@ defmodule Client do
         loop(state)
 
       {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
-        IO.inspect("CONNECTION ESTABLISHED")
+        Map.get(state, "callback_pid")
+        |> send({:connection_established})
+
         loop(state)
 
-      {:test} ->
+      {:send_message, header, body, request_id} ->
         {room, owner} = Map.get(state, "connection")
 
         {data_channel, pc} =
           Map.get(state, room)
           |> Map.get(owner)
 
-        header = %Message.Header{
-          RequestType: "POST",
-          Route: "http://localhost:8080/upload",
-          RequestHeaders: %{},
-          ContentType: "multipart/form-data"
-        }
-
-        f1 = File.read!("protocol")
-
-        file = %Message.Body.MultiPartBody.File{
-          FileName: "protocol",
-          FileType: "text",
-          FileContent: f1
-        }
-
-        body = %Message.Body.MultiPartBody{
-          TextContent: %{
-            "description" => "fjsklafjdslka"
-          },
-          Files: [file]
-        }
-
-        encoded = WebRTCMessageEncoder.encode_message(header, body)
+        encoded = WebRTCMessageEncoder.encode_message(header, body, request_id)
 
         Enum.each(encoded, fn part ->
           ExWebRTC.PeerConnection.send_data(pc, data_channel, part)

@@ -87,10 +87,16 @@ defmodule SocketHandler do
         |> loop()
 
       {:resolve_request, request_id, value} ->
-        Map.get(state, request_id)
-        |> send({:resolved, value})
+        case Map.get(state, request_id) do
+          nil ->
+            nil
 
-        Map.delete(state, request_id) |> loop()
+          val ->
+            send(val, {:resolved, value})
+        end
+
+        Map.delete(state, request_id)
+        |> loop()
     end
 
     loop(state)
