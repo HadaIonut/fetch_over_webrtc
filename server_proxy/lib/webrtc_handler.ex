@@ -1,87 +1,124 @@
 defmodule WebRTCHandler do
+  use GenServer
   require Logger
 
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
-  def start(peer_connection, room_id, user_id, parent_pid) do
-    {:ok, _pid} =
-      Task.start(fn ->
-        loop(%WebRTCHandler{
-          peer_connection: peer_connection,
-          room_id: room_id,
-          user_id: user_id,
-          parent_pid: parent_pid
-        })
-      end)
+  @impl true
+  def init({peer_connection, room_id, user_id, parent_pid}) do
+    {:ok,
+     %WebRTCHandler{
+       peer_connection: peer_connection,
+       room_id: room_id,
+       user_id: user_id,
+       parent_pid: parent_pid
+     }}
   end
 
-  defp loop(
-         %{
-           peer_connection: pc,
-           room_id: room_id,
-           user_id: user_id,
-           parent_pid: parent_pid,
-           decoder_pid: decoder_pid
-         } = state
-       ) do
-    receive do
-      {:data, _data_channel, "pong"} ->
-        send(
-          parent_pid,
-          {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
-        )
+  @impl true
+  def handle_cast(
+        {:data, _data_channel, "pong"},
+        %{parent_pid: parent_pid} = state
+      ) do
+    send(
+      parent_pid,
+      {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
+    )
 
-        loop(state)
+    {:noreply, state}
+  end
 
-      {:data, _data_channel, "ping"} ->
-        send(
-          parent_pid,
-          {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
-        )
+  @impl true
+  def handle_cast(
+        {:data, _data_channel, "ping"},
+        %{parent_pid: parent_pid} = state
+      ) do
+    send(
+      parent_pid,
+      {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
+    )
 
-        loop(state)
+    {:noreply, state}
+  end
 
-      {:data, _data_channel, data} ->
-        Logger.warning("Received data from #{room_id} #{user_id}")
+  @impl true
+  def handle_cast(
+        {:data, _data_channel, data},
+        %{
+          parent_pid: parent_pid,
+          room_id: room_id,
+          user_id: user_id,
+          decoder_pid: decoder_pid
+        } = state
+      ) do
+    Logger.warning("Received data from #{room_id} #{user_id}")
 
-        {new_state, decoder_pid} =
-          if decoder_pid == nil do
-            {:ok, decoder_pid} = WebRTCMessageDecoder.start_link(parent_pid, room_id, user_id)
-            {Map.put(state, :decoder_pid, decoder_pid), decoder_pid}
-          else
-            {state, decoder_pid}
-          end
+    {new_state, decoder_pid} =
+      if decoder_pid == nil do
+        {:ok, decoder_pid} =
+          GenServer.start_link(WebRTCMessageDecoder, {parent_pid, room_id, user_id})
 
-        send(decoder_pid, {:receive_message, data})
-        loop(new_state)
+        {Map.put(state, :decoder_pid, decoder_pid), decoder_pid}
+      else
+        {state, decoder_pid}
+      end
 
-      {:data_channel, data_channel} ->
-        send(parent_pid, {:opened_data_channel, room_id, user_id, Map.get(data_channel, :ref)})
+    GenServer.cast(decoder_pid, {:receive_message, data})
 
-        loop(state)
+    {:noreply, new_state}
+  end
 
-      {:ice_candidate, candidate} ->
-        request_id = UUID.uuid4()
+  @impl true
+  def handle_cast(
+        {:data_channel, data_channel},
+        %{
+          parent_pid: parent_pid,
+          room_id: room_id,
+          user_id: user_id
+        } = state
+      ) do
+    send(parent_pid, {:opened_data_channel, room_id, user_id, Map.get(data_channel, :ref)})
+    {:noreply, state}
+  end
 
-        message =
-          JSON.encode!(%Messages.SendICE{
-            requestId: request_id,
-            roomId: room_id,
-            targetUserId: user_id,
-            iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
-          })
+  @impl true
+  def handle_cast(
+        {:ice_candidate, candidate},
+        %{
+          parent_pid: parent_pid,
+          room_id: room_id,
+          user_id: user_id
+        } = state
+      ) do
+    request_id = UUID.uuid4()
 
-        send(parent_pid, {:send_message, message})
+    message =
+      JSON.encode!(%Messages.SendICE{
+        requestId: request_id,
+        roomId: room_id,
+        targetUserId: user_id,
+        iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
+      })
 
-        loop(state)
+    send(parent_pid, {:send_message, message})
 
-      {:ice_connection_state_change, :completed} ->
-        IO.inspect("CONNECTION ESTABLISHED")
-        loop(state)
+    {:noreply, state}
+  end
 
-      unknown ->
-        IO.inspect("unknown message received #{inspect(unknown)}")
-        loop(state)
-    end
+  @impl true
+  def handle_cast(
+        {:ice_connection_state_change, :completed},
+        state
+      ) do
+    IO.inspect("CONNECTION ESTABLISHED")
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(unknown, state) do
+    IO.inspect("UNKNOWN MESSAGE RECEIVED, #{inspect(unknown)}")
+
+    {:noreply, state}
   end
 end

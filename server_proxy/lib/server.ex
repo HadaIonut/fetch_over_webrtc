@@ -73,7 +73,7 @@ defmodule Server do
     receive do
       {:start, callback_pid} ->
         {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
-        {:ok, proxy_pid} = ServerProxy.start(self())
+        {:ok, proxy_pid} = GenServer.start(ServerProxy, %{})
 
         send(self(), {:add_socket, socket_pid})
 
@@ -144,7 +144,7 @@ defmodule Server do
         {message, room_id, user_id, peer_connection} = start_connection(data)
         Map.get(state, "socket_pid") |> WebSockex.send_frame({:text, message})
 
-        {:ok, pid} = WebRTCHandler.start(peer_connection, room_id, user_id, self())
+        {:ok, pid} = GenServer.start(WebRTCHandler, {peer_connection, room_id, user_id, self()})
 
         # bullshit mapping pc -> pid at global root because i have no other way to identify who is who without it
         Map.put(state, peer_connection, pid)
@@ -175,7 +175,7 @@ defmodule Server do
       {:ex_webrtc, pc, msg} ->
         try do
           Map.get(state, pc)
-          |> send(msg)
+          |> GenServer.cast(msg)
         rescue
           e in ArgumentError -> IO.inspect(e)
         end
@@ -193,7 +193,7 @@ defmodule Server do
         [pc, _, data_channel] = get_in(state, ["rooms", room_id, user_id])
 
         Map.get(state, "proxy_pid")
-        |> send({:relay, msg, request_id, pc, data_channel})
+        |> ServerProxy.relay({:relay, msg, request_id, pc, data_channel})
 
         loop(state)
 

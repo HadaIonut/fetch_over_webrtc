@@ -110,10 +110,67 @@ defmodule WebRTCMessageDecoder do
   @current_version 1
   @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
 
-  def start_link(callback_pid, room_id, user_id) do
-    Task.start_link(fn ->
-      loop(%{callback_pid: callback_pid, room_id: room_id, user_id: user_id})
-    end)
+  use GenServer
+
+  @impl true
+  def init({callback_pid, room_id, user_id}) do
+    {:ok, %{callback_pid: callback_pid, room_id: room_id, user_id: user_id}}
+  end
+
+  @impl true
+  def handle_cast(
+        {:receive_message,
+         <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36),
+           rest::binary>>},
+        state
+      )
+      when version == @current_version do
+    IO.inspect("recieved something #{id} #{index}/#{parts_count}")
+
+    new_state =
+      Map.update(
+        state,
+        id,
+        PriorityQueue.new() |> PriorityQueue.put({index, rest}),
+        fn list ->
+          list |> PriorityQueue.put({index, rest})
+        end
+      )
+
+    cur_entry = Map.get(new_state, id)
+
+    new_state =
+      case cur_entry |> PriorityQueue.size() do
+        ^parts_count ->
+          msg =
+            PriorityQueue.to_list(cur_entry)
+            |> Enum.reduce("", fn {_, val}, acc -> acc <> val end)
+
+          decoded = decode(msg, req_type)
+
+          Map.get(state, :callback_pid)
+          |> send(
+            {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), id, decoded}
+          )
+
+          Map.delete(new_state, id)
+
+        _ ->
+          new_state
+      end
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast(
+        {:receive_message, <<version::4, _rest::binary>>},
+        state
+      )
+      when version != @current_version do
+    IO.inspect("Received packet with wrong version")
+
+    {:noreply, state}
   end
 
   defp decode_request_headers(req_headers) do
@@ -190,51 +247,6 @@ defmodule WebRTCMessageDecoder do
        RequestHeaders: req_headers,
        ContentType: content_type
      }, body}
-  end
-
-  defp loop(state) do
-    receive do
-      {:receive_message,
-       <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36), rest::binary>>}
-      when version == @current_version ->
-        IO.inspect("recieved something #{id} #{index}/#{parts_count}")
-
-        new_state =
-          Map.update(
-            state,
-            id,
-            PriorityQueue.new() |> PriorityQueue.put({index, rest}),
-            fn list ->
-              list |> PriorityQueue.put({index, rest})
-            end
-          )
-
-        cur_entry = Map.get(new_state, id)
-
-        case cur_entry |> PriorityQueue.size() do
-          ^parts_count ->
-            msg =
-              PriorityQueue.to_list(cur_entry)
-              |> Enum.reduce("", fn {_, val}, acc -> acc <> val end)
-
-            decoded = decode(msg, req_type)
-
-            Map.get(state, :callback_pid)
-            |> send(
-              {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), id, decoded}
-            )
-
-            Map.delete(new_state, id)
-
-          _ ->
-            new_state
-        end
-        |> loop()
-
-      {:receive_message, <<version::4, _rest::binary>>} when version != @current_version ->
-        IO.inspect("Received packet with wrong version")
-        loop(state)
-    end
   end
 end
 
