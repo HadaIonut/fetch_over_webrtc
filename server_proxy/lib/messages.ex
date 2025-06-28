@@ -4,6 +4,11 @@ defmodule Messages do
     defstruct [:requestId, type: "create"]
   end
 
+  defmodule LeaveRoom do
+    @derive JSON.Encoder
+    defstruct [:requestId, :roomId, type: "leave"]
+  end
+
   defmodule JoinRoom do
     @derive JSON.Encoder
     defstruct [:requestId, :roomId, type: "join"]

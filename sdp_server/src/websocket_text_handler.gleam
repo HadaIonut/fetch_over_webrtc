@@ -175,7 +175,7 @@ fn handle_ws_leave(
   user_id,
   state: server_state.State,
   conn,
-  _request_id,
+  request_id,
 ) {
   case process.call(rooms_actor, rooms.Leave(room_id, user_id, _), 10) {
     Error(err) -> {
@@ -183,11 +183,15 @@ fn handle_ws_leave(
       state
     }
     Ok(room) -> {
-      let _ =
-        mist.send_text_frame(
-          conn,
-          "left" <> list.length(room.members) |> int.to_string(),
-        )
+      let response =
+        json.object([
+          #("type", json.string("leave")),
+          #("requestId", json.string(request_id)),
+          #("room", rooms.room_encoder(room)),
+        ])
+        |> json.to_string()
+
+      let _ = mist.send_text_frame(conn, response)
 
       server_state.State(
         ..state,

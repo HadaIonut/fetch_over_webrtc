@@ -2,7 +2,7 @@ defmodule SocketHandler do
   use WebSockex
   require Logger
 
-  @reply_message_types ["offer", "join", "create"]
+  @reply_message_types ["offer", "join", "create", "leave"]
 
   def start_link(negociator_state, parent_pid) do
     {:ok, neg_pid} = Task.start_link(fn -> loop(negociator_state) end)

@@ -1,6 +1,6 @@
 defmodule ClientManager do
-  def start(room_id) do
-    Client.start(room_id)
+  def join(room_id) do
+    Client.join(room_id)
   end
 
   def send_test_message(client_pid) do

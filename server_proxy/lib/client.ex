@@ -1,17 +1,45 @@
 defmodule Client do
   require Logger
 
-  def start(room_id) do
+  def join(room_id) do
     {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
 
     send(parent_pid, {:start, room_id, self()})
 
+    msg =
+      receive do
+        {:connection_established} ->
+          "connection established"
+
+        {:connection_failed} ->
+          "connection failed"
+      end
+
+    {parent_pid, msg}
+  end
+
+  def leave(parent_pid, room_id) do
+    send(parent_pid, {:leave, self(), room_id})
+
     receive do
-      {:connection_established} ->
+      {:left} ->
         nil
     end
+  end
 
-    parent_pid
+  defp send_leave_room_message(socket_pid, negociator_pid, room_id) do
+    request_id = UUID.uuid4()
+
+    message = JSON.encode!(%Messages.LeaveRoom{requestId: request_id, roomId: room_id})
+    Logger.info("Sending message: #{message}")
+
+    WebSockex.send_frame(socket_pid, {:text, message})
+
+    send(negociator_pid, {:add_pending, request_id, self()})
+
+    receive do
+      {:resolved, value} -> value
+    end
   end
 
   defp send_join_room_message(socket_pid, negociator_pid, room_id) do
@@ -78,6 +106,11 @@ defmodule Client do
         |> Map.put("pids", {negociator_pid, socket_pid})
         |> loop()
 
+      {:leave, callback_pid, room_id} ->
+        {negociator_pid, socket_pid} = Map.get(state, "pids")
+        send_leave_room_message(socket_pid, negociator_pid, room_id)
+        send(callback_pid, {:left})
+
       {:sdp_offered, %{"sdpCert" => cert, "roomId" => room_id, "sourceUserId" => user_id}} ->
         {_, pc} = Map.get(state, room_id) |> Map.get(user_id)
         cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
@@ -88,6 +121,12 @@ defmodule Client do
         Map.put(state, "handler_pid", pid)
         |> loop()
 
+      {:WebRTCDecoded, _room_id, _user_id, "pong", "pong"} ->
+        Map.get(state, "callback_pid")
+        |> send({:WebRTCDecoded, "pong", "pong"})
+
+        loop(state)
+
       {:WebRTCDecoded, _room_id, _user_id, request_id, message} ->
         Map.get(state, "callback_pid")
         |> send({:WebRTCDecoded, request_id, message})
@@ -97,6 +136,12 @@ defmodule Client do
       {:ex_webrtc, _pc, {:data, _, _} = msg} ->
         Map.get(state, "handler_pid")
         |> send(msg)
+
+        loop(state)
+
+      {:ex_webrtc, _pc, {:data, _data_channel, "pong"}} ->
+        Map.get(state, "callback_pid")
+        |> send({:WebRTCDecoded, "pong", "pong"})
 
         loop(state)
 
@@ -143,6 +188,23 @@ defmodule Client do
       {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
         Map.get(state, "callback_pid")
         |> send({:connection_established})
+
+        loop(state)
+
+      {:ex_webrtc, _, {:ice_connection_state_change, :failed}} ->
+        Map.get(state, "callback_pid")
+        |> send({:connection_failed})
+
+        loop(state)
+
+      {:ping_server} ->
+        {room, owner} = Map.get(state, "connection")
+
+        {data_channel, pc} =
+          Map.get(state, room)
+          |> Map.get(owner)
+
+        ExWebRTC.PeerConnection.send_data(pc, data_channel, "ping")
 
         loop(state)
 

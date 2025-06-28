@@ -2,9 +2,21 @@ defmodule Server do
   require Logger
 
   def start() do
-    {:ok, parent_pid} = Task.start_link(fn -> loop(%{"rooms" => %{}}) end)
+    {:ok, loop_pid} = Task.start_link(fn -> loop(%{"rooms" => %{}}) end)
 
-    send(parent_pid, {:start})
+    send(loop_pid, {:start, self()})
+
+    receive do
+      {:room_started, room_id} -> {loop_pid, room_id}
+    end
+  end
+
+  def stop(loop_pid, room_id) do
+    send(loop_pid, {:leave, self(), room_id})
+
+    receive do
+      {:room_stopped, room_id} -> {loop_pid, room_id}
+    end
   end
 
   defp send_create_room_message(socket_pid, negociator_pid) do
@@ -18,6 +30,20 @@ defmodule Server do
 
     receive do
       {:resolved, %{"requestId" => _, "roomId" => room_id, "type" => _}} -> room_id
+    end
+  end
+
+  defp send_leave_room_message(socket_pid, negociator_pid, room_id) do
+    request_id = UUID.uuid4()
+
+    message = %Messages.LeaveRoom{requestId: request_id, roomId: room_id} |> JSON.encode!()
+
+    WebSockex.send_frame(socket_pid, {:text, message})
+
+    send(negociator_pid, {:add_pending, request_id, self()})
+
+    receive do
+      {:resolved, %{"requestId" => _, "room" => room, "type" => _}} -> Map.get(room, "room_id")
     end
   end
 
@@ -45,17 +71,25 @@ defmodule Server do
 
   defp loop(state) do
     receive do
-      {:start} ->
+      {:start, callback_pid} ->
         {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
         {:ok, proxy_pid} = ServerProxy.start(self())
 
         send(self(), {:add_socket, socket_pid})
 
         room_id = send_create_room_message(socket_pid, negociator_pid)
+        send(callback_pid, {:room_started, room_id})
 
         put_in(state, ["rooms", room_id], %{})
         |> put_in(["proxy_pid"], proxy_pid)
+        |> put_in(["socket_pids"], {negociator_pid, socket_pid, proxy_pid})
         |> loop()
+
+      {:leave, callback_pid, room_id} ->
+        {negociator_pid, socket_pid, _} = get_in(state, ["socket_pids"])
+
+        send_leave_room_message(socket_pid, negociator_pid, room_id)
+        send(callback_pid, {:room_stopped, room_id})
 
       {:user_joined, %{"roomId" => room_id, "members" => members}} ->
         new_users =
@@ -70,6 +104,13 @@ defmodule Server do
           end)
         end)
         |> loop()
+
+      {:get_room_members, callback_pid, room_id} ->
+        members = get_in(state, ["rooms", room_id])
+
+        send(callback_pid, {:members_response, members})
+
+        loop(state)
 
       {:user_left, %{"roomId" => room_id, "members" => members}} ->
         members = Enum.map(members, fn %{"id" => mem_id} -> mem_id end)
@@ -138,6 +179,13 @@ defmodule Server do
         rescue
           e in ArgumentError -> IO.inspect(e)
         end
+
+        loop(state)
+
+      {:WebRTCDecoded, room_id, user_id, "pong", "pong"} ->
+        [pc, _, data_channel] = get_in(state, ["rooms", room_id, user_id])
+
+        ExWebRTC.PeerConnection.send_data(pc, data_channel, "pong")
 
         loop(state)
 

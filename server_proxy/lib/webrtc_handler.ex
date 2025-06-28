@@ -17,7 +17,7 @@ defmodule WebRTCHandler do
 
   defp loop(
          %{
-           peer_connection: _pc,
+           peer_connection: pc,
            room_id: room_id,
            user_id: user_id,
            parent_pid: parent_pid,
@@ -25,6 +25,22 @@ defmodule WebRTCHandler do
          } = state
        ) do
     receive do
+      {:data, _data_channel, "pong"} ->
+        send(
+          parent_pid,
+          {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
+        )
+
+        loop(state)
+
+      {:data, _data_channel, "ping"} ->
+        send(
+          parent_pid,
+          {:WebRTCDecoded, Map.get(state, :room_id), Map.get(state, :user_id), "pong", "pong"}
+        )
+
+        loop(state)
+
       {:data, _data_channel, data} ->
         Logger.warning("Received data from #{room_id} #{user_id}")
 
