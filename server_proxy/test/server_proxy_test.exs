@@ -33,9 +33,9 @@ defmodule ServerProxyTest do
 
   test "Clinet can ping the server" do
     {server_pid, room_id} = Server.start()
-    {client_pid, msg} = Client.join(room_id)
+    {client_pid, _msg} = Client.join(room_id)
 
-    send(client_pid, {:ping_server})
+    GenServer.cast(client_pid, {:ping_server})
 
     receive do
       {:WebRTCDecoded, request_id, message} ->
@@ -49,7 +49,7 @@ defmodule ServerProxyTest do
 
   test "Client can send json to the server, have it relayed and response sent back" do
     {server_pid, room_id} = Server.start()
-    {client_pid, msg} = Client.join(room_id)
+    {client_pid, _msg} = Client.join(room_id)
 
     header = %Message.Header{
       RequestType: "POST",
@@ -65,7 +65,7 @@ defmodule ServerProxyTest do
 
     request_id = UUID.uuid4()
 
-    send(client_pid, {:send_message, header, body, request_id})
+    GenServer.call(client_pid, {:send_message, header, body, request_id})
 
     receive do
       {:WebRTCDecoded, ^request_id, {rec_header, rec_body}} ->
@@ -79,7 +79,7 @@ defmodule ServerProxyTest do
 
   test "Client can send get request to the server, have it relayed and response sent back" do
     {server_pid, room_id} = Server.start()
-    {client_pid, msg} = Client.join(room_id)
+    {client_pid, _msg} = Client.join(room_id)
 
     header = %Message.Header{
       RequestType: "GET",
@@ -91,7 +91,7 @@ defmodule ServerProxyTest do
 
     request_id = UUID.uuid4()
 
-    send(client_pid, {:send_message, header, body, request_id})
+    GenServer.call(client_pid, {:send_message, header, body, request_id})
 
     receive do
       {:WebRTCDecoded, ^request_id, {_rec_header, rec_body}} ->
@@ -108,7 +108,7 @@ defmodule ServerProxyTest do
 
   test "Client can send file to the server, have it relayed and response sent back" do
     {server_pid, room_id} = Server.start()
-    {client_pid, msg} = Client.join(room_id)
+    {client_pid, _msg} = Client.join(room_id)
 
     header = %Message.Header{
       RequestType: "POST",
@@ -134,7 +134,7 @@ defmodule ServerProxyTest do
 
     request_id = UUID.uuid4()
 
-    send(client_pid, {:send_message, header, body, request_id})
+    GenServer.call(client_pid, {:send_message, header, body, request_id})
 
     receive do
       {:WebRTCDecoded, ^request_id, {_rec_header, rec_body}} ->

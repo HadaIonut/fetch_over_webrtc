@@ -49,32 +49,24 @@ defmodule ClientSocketHandler do
 end
 
 defmodule Client do
+  use GenServer
   require Logger
 
+  @impl true
+  def init(state \\ %{}) do
+    {:ok, state}
+  end
+
   def join(room_id) do
-    {:ok, parent_pid} = Task.start_link(fn -> loop(%{}) end)
+    {:ok, parent_pid} = GenServer.start_link(Client, %{})
 
-    send(parent_pid, {:start, room_id, self()})
-
-    msg =
-      receive do
-        {:connection_established} ->
-          "connection established"
-
-        {:connection_failed} ->
-          "connection failed"
-      end
+    msg = GenServer.call(parent_pid, {:start, room_id, self()}, :infinity)
 
     {parent_pid, msg}
   end
 
   def leave(parent_pid, room_id) do
-    send(parent_pid, {:leave, self(), room_id})
-
-    receive do
-      {:left} ->
-        nil
-    end
+    GenServer.call(parent_pid, {:leave, room_id})
   end
 
   defp send_leave_room_message(socket_pid, negociator_pid, room_id) do
@@ -141,61 +133,98 @@ defmodule Client do
     {val, request_id, pc, data_channel.ref}
   end
 
-  defp loop(state) do
+  @impl true
+  def handle_call({:send_message, header, body, request_id}, _from, state) do
+    {room, owner} = Map.get(state, "connection")
+
+    {data_channel, pc} =
+      Map.get(state, room)
+      |> Map.get(owner)
+
+    encoded = WebRTCMessageEncoder.encode_message(header, body, request_id)
+
+    Enum.each(encoded, fn part ->
+      ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
+    end)
+
+    {:reply, nil, state}
+  end
+
+  @impl true
+  def handle_call({:start, room_id, callback_pid}, _from, state) do
+    {:ok, sock_handler_pid} = GenServer.start_link(ClientSocketHandler, %{})
+    {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, sock_handler_pid)
+
+    {pc, data_channel, room, owner} =
+      send_join_room_message(socket_pid, negociator_pid, room_id)
+
+    {:ok, pid} = GenServer.start(WebRTCHandler, {pc, room_id, nil, self()})
+
+    GenServer.cast(sock_handler_pid, {:add_connection, pc, data_channel, pid})
+
+    new_state =
+      Map.put(state, "connection", {room, owner})
+      |> Map.put("handler_pid", pid)
+      |> Map.put(room, Map.put(%{}, owner, {data_channel, pc}))
+      |> Map.put("callback_pid", callback_pid)
+      |> Map.put("pids", {negociator_pid, socket_pid})
+
     receive do
-      {:start, room_id, callback_pid} ->
-        {:ok, sock_handler_pid} = GenServer.start_link(ClientSocketHandler, %{})
-        {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, sock_handler_pid)
+      {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
+        {:reply, "connection established", new_state}
 
-        {pc, data_channel, room, owner} =
-          send_join_room_message(socket_pid, negociator_pid, room_id)
+      {:ex_webrtc, _, {:ice_connection_state_change, :failed}} ->
+        {:reply, "connection failed", new_state}
+    end
+  end
 
-        send(self(), {:add_connection, pc, data_channel, room, owner})
+  @impl true
+  def handle_call({:leave, room_id}, _from, state) do
+    {negociator_pid, socket_pid} = Map.get(state, "pids")
+    send_leave_room_message(socket_pid, negociator_pid, room_id)
 
-        {:ok, pid} = GenServer.start(WebRTCHandler, {pc, room_id, nil, self()})
+    {:reply, nil, state}
+  end
 
-        GenServer.cast(sock_handler_pid, {:add_connection, pc, data_channel, pid})
+  @impl true
+  def handle_cast({:ping_server}, state) do
+    {room, owner} = Map.get(state, "connection")
 
-        Map.put(state, "connection", {room, owner})
-        |> Map.put("handler_pid", pid)
-        |> Map.put("callback_pid", callback_pid)
-        |> Map.put("pids", {negociator_pid, socket_pid})
-        |> loop()
+    {data_channel, pc} =
+      Map.get(state, room)
+      |> Map.get(owner)
 
-      {:leave, callback_pid, room_id} ->
-        {negociator_pid, socket_pid} = Map.get(state, "pids")
-        send_leave_room_message(socket_pid, negociator_pid, room_id)
-        send(callback_pid, {:left})
+    ExWebRTC.PeerConnection.send_data(pc, data_channel, "ping")
 
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    case msg do
       {:WebRTCDecoded, _room_id, _user_id, "pong", "pong"} ->
         Map.get(state, "callback_pid")
         |> send({:WebRTCDecoded, "pong", "pong"})
 
-        loop(state)
+        {:noreply, state}
 
       {:WebRTCDecoded, _room_id, _user_id, request_id, message} ->
         Map.get(state, "callback_pid")
         |> send({:WebRTCDecoded, request_id, message})
 
-        loop(state)
-
-      {:ex_webrtc, _pc, {:data, _, _} = msg} ->
-        Map.get(state, "handler_pid")
-        |> GenServer.cast(msg)
-
-        loop(state)
+        {:noreply, state}
 
       {:ex_webrtc, _pc, {:data, _data_channel, "pong"}} ->
         Map.get(state, "callback_pid")
         |> send({:WebRTCDecoded, "pong", "pong"})
 
-        loop(state)
+        {:noreply, state}
 
-      {:add_connection, pc, data_channel, room, owner} ->
-        room_val = Map.put(%{}, owner, {data_channel, pc})
+      {:ex_webrtc, _pc, {:data, _, _} = msg} ->
+        Map.get(state, "handler_pid")
+        |> GenServer.cast(msg)
 
-        Map.put(state, room, room_val)
-        |> loop()
+        {:noreply, state}
 
       {:ex_webrtc, _, {:ice_candidate, candidate}} ->
         {room, owner} = Map.get(state, "connection")
@@ -213,45 +242,12 @@ defmodule Client do
 
         WebSockex.send_frame(socket_pid, {:text, message})
 
-        loop(state)
+        {:noreply, state}
 
-      {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
-        Map.get(state, "callback_pid")
-        |> send({:connection_established})
+      _unknown ->
+        IO.inspect("CLINET RECIEVED UNHANDLED MESSAGE")
 
-        loop(state)
-
-      {:ex_webrtc, _, {:ice_connection_state_change, :failed}} ->
-        Map.get(state, "callback_pid")
-        |> send({:connection_failed})
-
-        loop(state)
-
-      {:ping_server} ->
-        {room, owner} = Map.get(state, "connection")
-
-        {data_channel, pc} =
-          Map.get(state, room)
-          |> Map.get(owner)
-
-        ExWebRTC.PeerConnection.send_data(pc, data_channel, "ping")
-
-        loop(state)
-
-      {:send_message, header, body, request_id} ->
-        {room, owner} = Map.get(state, "connection")
-
-        {data_channel, pc} =
-          Map.get(state, room)
-          |> Map.get(owner)
-
-        encoded = WebRTCMessageEncoder.encode_message(header, body, request_id)
-
-        Enum.each(encoded, fn part ->
-          ExWebRTC.PeerConnection.send_data(pc, data_channel, part)
-        end)
-
-        loop(state)
+        {:noreply, state}
     end
   end
 end

@@ -162,7 +162,7 @@ defmodule Server do
        }} ->
         ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
 
-        [pc, _] = get_in(state, ["rooms", source_room_id, source_user_id])
+        [pc, _, _] = get_in(state, ["rooms", source_room_id, source_user_id])
 
         ExWebRTC.PeerConnection.add_ice_candidate(pc, ice_candidate)
 
