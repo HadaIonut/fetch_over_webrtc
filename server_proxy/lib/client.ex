@@ -1,3 +1,53 @@
+defmodule ClientSocketHandler do
+  use GenServer
+
+  @impl true
+  def init(init_arg \\ %{}) do
+    {:ok, init_arg}
+  end
+
+  @impl true
+  def handle_info(
+        {:sdp_offered, %{"sdpCert" => cert, "roomId" => _, "sourceUserId" => user_id}},
+        state
+      ) do
+    cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
+    :ok = ExWebRTC.PeerConnection.set_remote_description(state.peer_connection, cert)
+
+    GenServer.cast(state.webrtc_handler, {:add_user_id, user_id})
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(
+        {:ice_candidate,
+         %{
+           "ICECandidate" => ice_candidate
+         }},
+        state
+      ) do
+    ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
+
+    ExWebRTC.PeerConnection.add_ice_candidate(state.peer_connection, ice_candidate)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(
+        {:add_connection, peer_connection, data_channel, webrtc_handler},
+        state
+      ) do
+    new_state =
+      Map.put(state, :peer_connection, peer_connection)
+      |> Map.put(:data_channel, data_channel)
+      |> Map.put(:webrtc_handler, webrtc_handler)
+
+    {:noreply, new_state}
+  end
+end
+
 defmodule Client do
   require Logger
 
@@ -94,14 +144,20 @@ defmodule Client do
   defp loop(state) do
     receive do
       {:start, room_id, callback_pid} ->
-        {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, self())
+        {:ok, sock_handler_pid} = GenServer.start_link(ClientSocketHandler, %{})
+        {:ok, negociator_pid, socket_pid} = SocketHandler.start_link(%{}, sock_handler_pid)
 
         {pc, data_channel, room, owner} =
           send_join_room_message(socket_pid, negociator_pid, room_id)
 
         send(self(), {:add_connection, pc, data_channel, room, owner})
 
+        {:ok, pid} = GenServer.start(WebRTCHandler, {pc, room_id, nil, self()})
+
+        GenServer.cast(sock_handler_pid, {:add_connection, pc, data_channel, pid})
+
         Map.put(state, "connection", {room, owner})
+        |> Map.put("handler_pid", pid)
         |> Map.put("callback_pid", callback_pid)
         |> Map.put("pids", {negociator_pid, socket_pid})
         |> loop()
@@ -110,16 +166,6 @@ defmodule Client do
         {negociator_pid, socket_pid} = Map.get(state, "pids")
         send_leave_room_message(socket_pid, negociator_pid, room_id)
         send(callback_pid, {:left})
-
-      {:sdp_offered, %{"sdpCert" => cert, "roomId" => room_id, "sourceUserId" => user_id}} ->
-        {_, pc} = Map.get(state, room_id) |> Map.get(user_id)
-        cert = cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
-        :ok = ExWebRTC.PeerConnection.set_remote_description(pc, cert)
-
-        {:ok, pid} = GenServer.start(WebRTCHandler, {pc, room_id, user_id, self()})
-
-        Map.put(state, "handler_pid", pid)
-        |> loop()
 
       {:WebRTCDecoded, _room_id, _user_id, "pong", "pong"} ->
         Map.get(state, "callback_pid")
@@ -150,22 +196,6 @@ defmodule Client do
 
         Map.put(state, room, room_val)
         |> loop()
-
-      {:ice_candidate,
-       %{
-         "ICECandidate" => ice_candidate
-       }} ->
-        {room, owner} = Map.get(state, "connection")
-
-        ice_candidate = JSON.decode!(ice_candidate) |> ExWebRTC.ICECandidate.from_json()
-
-        {_, pc} =
-          Map.get(state, room)
-          |> Map.get(owner)
-
-        ExWebRTC.PeerConnection.add_ice_candidate(pc, ice_candidate)
-
-        loop(state)
 
       {:ex_webrtc, _, {:ice_candidate, candidate}} ->
         {room, owner} = Map.get(state, "connection")

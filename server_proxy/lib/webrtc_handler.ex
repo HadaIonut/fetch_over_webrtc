@@ -16,6 +16,11 @@ defmodule WebRTCHandler do
   end
 
   @impl true
+  def handle_cast({:add_user_id, user_id}, state) do
+    {:noreply, Map.put(state, :user_id, user_id)}
+  end
+
+  @impl true
   def handle_cast(
         {:data, _data_channel, "pong"},
         %{parent_pid: parent_pid} = state
