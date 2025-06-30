@@ -73,7 +73,6 @@ defmodule Client do
     request_id = UUID.uuid4()
 
     message = JSON.encode!(%Messages.LeaveRoom{requestId: request_id, roomId: room_id})
-    Logger.info("Sending message: #{message}")
 
     WebSockex.send_frame(socket_pid, {:text, message})
 
@@ -88,7 +87,6 @@ defmodule Client do
     request_id = UUID.uuid4()
 
     message = JSON.encode!(%Messages.JoinRoom{requestId: request_id, roomId: room_id})
-    Logger.info("Sending message: #{message}")
 
     WebSockex.send_frame(socket_pid, {:text, message})
 

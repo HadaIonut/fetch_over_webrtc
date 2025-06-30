@@ -77,10 +77,10 @@ defmodule Server do
         send_leave_room_message(socket_pid, negociator_pid, room_id)
         send(callback_pid, {:room_stopped, room_id})
 
-      {:get_room_members, callback_pid, room_id} ->
-        members = get_in(state, ["rooms", room_id])
+      {:get_room_members, callback_pid} ->
+        children = DynamicSupervisor.which_children(ClientSupervisor)
 
-        send(callback_pid, {:members_response, members})
+        send(callback_pid, {:members_response, children})
 
         loop(state)
 

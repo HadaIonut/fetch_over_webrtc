@@ -19,12 +19,11 @@ defmodule ServerProxyTest do
 
     assert(msg, "connection established")
 
-    send(server_pid, {:get_room_members, self(), room_id})
+    send(server_pid, {:get_room_members, self()})
 
     receive do
       {:members_response, members} ->
-        mem_keys = Map.keys(members)
-        assert(length(mem_keys) == 2)
+        assert(length(members) == 1)
     end
 
     Client.leave(client_pid, room_id)
@@ -36,6 +35,38 @@ defmodule ServerProxyTest do
     {client_pid, _msg} = Client.join(room_id)
 
     GenServer.cast(client_pid, {:ping_server})
+
+    receive do
+      {:WebRTCDecoded, request_id, message} ->
+        assert(request_id == "pong")
+        assert(message == "pong")
+    end
+
+    Client.leave(client_pid, room_id)
+    Server.stop(server_pid, room_id)
+  end
+
+  test "Multiple Clinets can ping the server" do
+    {server_pid, room_id} = Server.start()
+    {client_pid, _msg} = Client.join(room_id)
+    {client_pid_2, _msg} = Client.join(room_id)
+    {client_pid_3, _msg} = Client.join(room_id)
+
+    GenServer.cast(client_pid, {:ping_server})
+    GenServer.cast(client_pid_2, {:ping_server})
+    GenServer.cast(client_pid_3, {:ping_server})
+
+    receive do
+      {:WebRTCDecoded, request_id, message} ->
+        assert(request_id == "pong")
+        assert(message == "pong")
+    end
+
+    receive do
+      {:WebRTCDecoded, request_id, message} ->
+        assert(request_id == "pong")
+        assert(message == "pong")
+    end
 
     receive do
       {:WebRTCDecoded, request_id, message} ->
@@ -143,6 +174,72 @@ defmodule ServerProxyTest do
             "Fetch Over WebRTC protocol message:\n\n0     4       20      36     40             328\n----------------------------------------------\n| Vers|Total   |Current| Req |  Request Id   |\n|\tion\t|Parts   |Part   | type|  UUIDv4       |\n----------------------------------------------\n|\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t |\n|\t\t\t\t\t\tHeader + Body\t\t\t\t\t\t\t\t\t\t |\n|\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t |\n----------------------------------------------\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t100_328\n\n\nRoute:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\\n\nRequestHeaders: name=value, name2=value2, ... \\n\nContentType:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\\n\n\n\\r\\n\n\napplication/json:\n\t- body in json format\nmultipart/form-data:\n----\nText (maybe json)\n----\n----\nFileName:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\\n\nFileType:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\\n\n-----Content in base64-----\t\t\t\t\t\t\t\t\t\t\\n\n----\n\n\nRequest Types:\n\nGET    == 0\nPOST   == 1\nPUT    == 2\nDELETE == 3\n\n"
         )
     end
+
+    Client.leave(client_pid, room_id)
+    Server.stop(server_pid, room_id)
+  end
+
+  def run(counter, _request_id_1, _request_id_2, _header_1, _body_1, _header_2, _body_2)
+      when counter == 2 do
+  end
+
+  def run(counter, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
+      when counter < 2 do
+    receive do
+      {:WebRTCDecoded, ^request_id_1, {rec_header, rec_body}} ->
+        assert(rec_header == header_1)
+        assert(rec_body == body_1)
+        run(counter + 1, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
+
+      {:WebRTCDecoded, ^request_id_2, {rec_header, rec_body}} ->
+        assert(rec_header == header_2)
+        assert(rec_body == body_2)
+
+        run(counter + 1, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
+    after
+      # executed after 250 milliseconds
+      250 -> run(counter, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
+    end
+  end
+
+  test "Multile clients can send messages" do
+    {server_pid, room_id} = Server.start()
+    {client_pid, _msg} = Client.join(room_id)
+    {client_pid_2, _msg} = Client.join(room_id)
+
+    header_1 = %Message.Header{
+      RequestType: "POST",
+      Route: "http://localhost:8080/echo",
+      RequestHeaders: %{},
+      ContentType: "application/json"
+    }
+
+    body_1 = %{
+      "a" => "a",
+      "b" => "b"
+    }
+
+    request_id_1 = UUID.uuid4()
+
+    GenServer.call(client_pid, {:send_message, header_1, body_1, request_id_1})
+
+    header_2 = %Message.Header{
+      RequestType: "POST",
+      Route: "http://localhost:8080/echo",
+      RequestHeaders: %{},
+      ContentType: "application/json"
+    }
+
+    body_2 = %{
+      "c" => "c",
+      "d" => "d"
+    }
+
+    request_id_2 = UUID.uuid4()
+
+    GenServer.call(client_pid_2, {:send_message, header_2, body_2, request_id_2})
+
+    run(0, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
 
     Client.leave(client_pid, room_id)
     Server.stop(server_pid, room_id)

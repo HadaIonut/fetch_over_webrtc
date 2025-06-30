@@ -17,13 +17,10 @@ defmodule SocketHandler do
   end
 
   def handle_connect(_conn, state) do
-    Logger.info("Connected!")
     {:ok, state}
   end
 
   def handle_frame({:text, msg}, state) do
-    Logger.info("Received Message: #{msg}")
-
     case JSON.decode(msg) do
       {:ok, %{"type" => type, "requestId" => request_id} = res}
       when type in @reply_message_types ->
@@ -44,28 +41,22 @@ defmodule SocketHandler do
         )
 
       {:ok, %{"type" => type} = res} when type == "ICECandidate" ->
-        Logger.info("Ice Candidate received ")
         send(state.parent, {:ice_candidate, res})
 
       {:ok, %{"type" => type} = res} when type == "userOffer" ->
-        Logger.info("user offer received")
-
         send(state.parent, {:sdp_offered, res})
 
       {:ok, %{"type" => type} = res} when type == "userOfferReply" ->
-        Logger.info("user offer reply received")
-
         send(state.parent, {:sdp_offered, res})
 
       {:ok, %{"type" => type} = res} when type == "ICECandidate" ->
-        Logger.info("Ice Candidate received ")
         send(state.parent, {:ice_candidate, res})
 
       {:ok, _} ->
-        IO.inspect("unkonwn msg")
+        Logger.debug("unkonwn msg")
 
       {:error, msg} ->
-        IO.inspect(msg)
+        Logger.debug(msg)
     end
 
     {:ok, state}

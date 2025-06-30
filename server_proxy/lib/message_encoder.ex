@@ -106,6 +106,7 @@ defmodule Message do
 end
 
 defmodule WebRTCMessageDecoder do
+  require Logger
   alias Message.Body.MultiPartBody
   @current_version 1
   @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
@@ -125,7 +126,7 @@ defmodule WebRTCMessageDecoder do
         state
       )
       when version == @current_version do
-    IO.inspect("recieved something #{id} #{index}/#{parts_count}")
+    Logger.debug("recieved something #{id} #{index}/#{parts_count}")
 
     new_state =
       Map.update(
