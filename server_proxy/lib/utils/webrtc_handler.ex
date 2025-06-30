@@ -115,14 +115,14 @@ defmodule WebRTCHandler do
         {:ice_connection_state_change, :completed},
         state
       ) do
-    IO.inspect("CONNECTION ESTABLISHED")
+    Logger.debug("CONNECTION ESTABLISHED")
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast(unknown, state) do
-    IO.inspect("UNKNOWN MESSAGE RECEIVED, #{inspect(unknown)}")
+    Logger.debug("UNKNOWN MESSAGE RECEIVED, #{inspect(unknown)}")
 
     {:noreply, state}
   end

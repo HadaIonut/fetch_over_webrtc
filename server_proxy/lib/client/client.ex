@@ -245,7 +245,7 @@ defmodule Client do
         {:noreply, state}
 
       _unknown ->
-        IO.inspect("CLINET RECIEVED UNHANDLED MESSAGE")
+        Logger.debug("CLINET RECIEVED UNHANDLED MESSAGE")
 
         {:noreply, state}
     end
