@@ -56,7 +56,7 @@ defmodule SocketHandler do
         Logger.debug("unkonwn msg")
 
       {:error, msg} ->
-        Logger.debug(msg)
+        Logger.debug(inspect(msg))
     end
 
     {:ok, state}
