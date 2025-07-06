@@ -1,4 +1,6 @@
 import * as encoding from "./encoding.js"
+/** @typedef {import('./types.d.ts').Header} Header */
+/** @typedef {import('./types.d.ts').Body} Body */
 
 function sendSocketRequest(data) {
   const reqId = crypto.randomUUID()
@@ -20,9 +22,13 @@ export function sendJoinRoomMessage(roomId) {
   return sendSocketRequest(joinRoomMessage)
 }
 
+/**
+ * @returns {Promise<RTCDataChannel>}
+ */
 export async function startDataChannel(roomId) {
   peerConnection = new RTCPeerConnection()
   const dataChannel = peerConnection.createDataChannel("ligma")
+  dataChannel.binaryType = 'arraybuffer'
   const offer = await peerConnection.createOffer()
   await peerConnection.setLocalDescription(offer)
   const message = {
@@ -82,17 +88,52 @@ socket.addEventListener("message", (event) => {
   }
   pending[data.requestId].res(data)
   clearTimeout(pending[data.requestId].timeoutId)
+  delete pending[data.requestId]
 })
 
 await new Promise((res) => {
   socket.addEventListener("open", _ => res())
 })
 
-const roomId = "7D96BC1D-2997-4DF6-9A12-ADC9EC7AF476"
+const roomId = "E4086473-1622-4C62-971E-67E9F5714FDE"
 
 console.log(await sendJoinRoomMessage(roomId))
 const datachannel = await startDataChannel(roomId)
 
-encoding.default("ligma ballz", "GET").forEach(p => datachannel.send(p))
+datachannel.addEventListener("message", (event) => {
+  const data = event.data
+  const { chunks, currentChunk, type, id, content } = encoding.binaryDecodeMessage(data)
 
-datachannel.addEventListener("message", (event) => console.log("message: " + event.data))
+  console.log(Object.keys(pending))
+  console.log(id)
+
+  pending[id].parts[currentChunk] = content
+  pending[id].partsReceived++
+  pending[id].type = type
+
+  if (pending[id].partsReceived !== chunks) return
+
+  const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
+
+  pending[id].res({ header, body })
+})
+
+/**
+  * @param {Header} header 
+  * @param {Body} body
+  * @returns {Promise<unknown>}
+  */
+export async function sendMessage(header, body) {
+  const [payload, requestType] = await encoding.textEncodeMessage(header, body)
+  const requestId = crypto.randomUUID()
+  const encoded = encoding.binaryEncodeMessage(payload, requestType, requestId)
+
+  encoded.forEach(p => datachannel.send(p))
+
+  return new Promise((res, rej) => {
+    const timeoutId = setTimeout(() => rej("timeout"), 10000)
+    pending[requestId] = { res, rej, timeoutId, parts: [], type: "", partsReceived: 0 }
+  })
+}
+
+console.log(await sendMessage({ route: "https://google.com", requestType: "GET" }, ""))

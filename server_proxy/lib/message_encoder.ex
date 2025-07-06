@@ -268,7 +268,8 @@ defmodule WebRTCMessageEncoder do
     Enum.with_index(parts)
     |> Enum.map(fn {part, index} ->
       bit_head =
-        <<@version::4, parts_count::16, index::16, req_type::4>> <> UUIDTools.uuid_to_binary(id)
+        <<@version::4, parts_count::16, index::16, req_type::4,
+          UUIDTools.uuid_to_binary(id)::binary-size(16)>>
 
       bit_head <> part
     end)

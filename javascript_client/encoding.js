@@ -35,18 +35,16 @@ function chunkBuffer(buffer, chunkSize) {
 }
 
 function uuidToBytes(uuid) {
-  console.log(uuid)
   const hex = uuid.replace(/-/g, '');
   if (hex.length !== 32) throw new Error("Invalid UUID format");
-  console.log(hex)
 
   const bytes = new Uint8Array(16);
   for (let i = 0; i < 16; i++) {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
-  console.log(bytes)
   return bytes;
 }
+
 function bytesToUuid(bitReader) {
   const uuidBytes = new Uint8Array(16);
   for (let i = 0; i < 16; i++) {
@@ -63,59 +61,6 @@ function bytesToUuid(bitReader) {
     hex.slice(16, 20) + '-' +
     hex.slice(20)
   );
-}
-
-/**
- * @returns {Uint8Array[]}
- */
-function binaryEncodeMessage(message, requestType, id = crypto.randomUUID()) {
-  const encoder = new TextEncoder()
-  const payload = encoder.encode(message)
-
-  const chunks = chunkBuffer(payload, CHUNK_SIZE)
-
-  return chunks.reduce((acc, cur, index) => {
-    const writer = new BitWriter((4 + 16 + 16 + 4) / 8)
-
-    console.log("chunks", chunks.length)
-    writer.writeBits(1, 4)
-    writer.writeBits(chunks.length, 16)
-    writer.writeBits(index, 16)
-    writer.writeBits(TYPE_TO_ID_MAP[requestType], 4)
-
-    const writerResult = writer.getBuffer()
-    const uuidBytes = uuidToBytes(id)
-
-    const headerLen = writerResult.byteLength + uuidBytes.byteLength
-
-    const result = new Uint8Array(headerLen + cur.byteLength)
-    result.set(new Uint8Array(writerResult), 0)
-    result.set(new Uint8Array(uuidBytes), writerResult.byteLength)
-    result.set(cur, headerLen)
-
-    return [
-      ...acc,
-      result
-    ]
-  }, [])
-}
-
-function binaryDecodeMessage(message) {
-  const reader = new BitReader(message)
-
-  const version = reader.readBits(4)
-  if (version !== 1) throw new Error("Unknown version received")
-
-  const chunks = reader.readBits(16)
-  const currentChunk = reader.readBits(16)
-  const type = ID_TO_TYPE_MAP[reader.readBits(4)]
-
-  const id = bytesToUuid(reader)
-  const contentBytes = reader.readRemainingBits()
-  const decoder = new TextDecoder("utf-8")
-  const content = decoder.decode(contentBytes)
-
-  return { chunks, currentChunk, type, id, content }
 }
 
 function encodeRequestHeaders(requestHeaders) {
@@ -154,8 +99,8 @@ function base64ToFile(base64, filename, mimeType) {
 function encodeHeader(header) {
   let encodedHeader = ""
   encodedHeader += `Route: ${header.route}\n`
-  encodedHeader += `RequestHeaders: ${encodeRequestHeaders(header.requestHeaders)}\n`
-  encodedHeader += `ContentType: ${header.contentType}\n`
+  encodedHeader += `RequestHeaders: ${encodeRequestHeaders(header.requestHeaders ?? {})}\n`
+  encodedHeader += `ContentType: ${header.contentType ?? ''}`
   encodedHeader += '\r\n'
 
   return [encodedHeader, header.requestType]
@@ -188,17 +133,7 @@ async function encodeBody(body) {
   return JSON.stringify(body)
 }
 
-/**
-  * @param {Header} header
-  * @param {Body} body
-  * @returns {Promise<string>}
-  */
-async function textEncodeMessage(header, body) {
-  const [encodedHeader, requestType] = encodeHeader(header)
-  const encodedBody = await encodeBody(body)
 
-  return [`${encodedHeader}${encodedBody}`, requestType]
-}
 
 /**
  * @param {string} requestHeaders 
@@ -261,10 +196,57 @@ function decodeBody(body, contentType) {
 }
 
 /**
+  * @param {Header} header
+  * @param {Body} body
+  * @returns {Promise<[string, string]>}
+  */
+export async function textEncodeMessage(header, body) {
+  const [encodedHeader, requestType] = encodeHeader(header)
+  const encodedBody = await encodeBody(body)
+
+  return [`${encodedHeader}${encodedBody}`, requestType]
+}
+
+/**
+ * @returns {Uint8Array[]}
+ */
+export function binaryEncodeMessage(message, requestType, id = crypto.randomUUID()) {
+  const encoder = new TextEncoder()
+  const payload = encoder.encode(message)
+
+  const chunks = chunkBuffer(payload, CHUNK_SIZE)
+
+  return chunks.reduce((acc, cur, index) => {
+    const writer = new BitWriter((4 + 16 + 16 + 4) / 8)
+
+    console.log("chunks", chunks.length)
+    writer.writeBits(1, 4)
+    writer.writeBits(chunks.length, 16)
+    writer.writeBits(index, 16)
+    writer.writeBits(TYPE_TO_ID_MAP[requestType], 4)
+
+    const writerResult = writer.getBuffer()
+    const uuidBytes = uuidToBytes(id)
+
+    const headerLen = writerResult.byteLength + uuidBytes.byteLength
+
+    const result = new Uint8Array(headerLen + cur.byteLength)
+    result.set(new Uint8Array(writerResult), 0)
+    result.set(new Uint8Array(uuidBytes), writerResult.byteLength)
+    result.set(cur, headerLen)
+
+    return [
+      ...acc,
+      result
+    ]
+  }, [])
+}
+
+/**
  * @param {string} text - text to be decoded 
  * @returns {[Header, Body]}
  */
-function textDecodeMessage(text) {
+export function textDecodeMessage(text) {
   let [header, body] = text.split("\r\n")
 
   header = decodeTextHeader(header)
@@ -273,37 +255,27 @@ function textDecodeMessage(text) {
   return [header, body]
 }
 
-document.querySelector("input").addEventListener("change", async (event) => {
-  const files = event.target.files
-
-  const [encoded, type] = await textEncodeMessage({
-    route: "ligma",
-    requestHeaders: {},
-    requestType: "GET",
-    contentType: "multipart/form-data"
-  }, {
-    files: files,
-    textContent: { a: "a" }
-  })
-
-  const decoded = textDecodeMessage(encoded)
-
-  console.log(encoded)
-  console.log(decoded)
-
-  const reader = new FileReader()
-  reader.readAsText(decoded[1].files[0])
-
-  reader.onload = (e) => {
-    console.log(e.target.result)
-  }
-})
-
 /**
-  * @param {Header} header
-  * @param {Body} body
-  */
-export async function encodeMessage(header, body) {
-  const [textEncoded, requestType] = await textEncodeMessage(header, body)
-  return binaryEncodeMessage(textEncoded, requestType)
+ * @param {ArrayBuffer} message 
+ */
+export function binaryDecodeMessage(message) {
+  const reader = new BitReader(message)
+
+  // header 
+  const version = reader.readBits(4)
+  if (version !== 1) throw new Error("Unknown version received")
+
+  const chunks = reader.readBits(16)
+  const currentChunk = reader.readBits(16)
+  const type = ID_TO_TYPE_MAP[reader.readBits(4)]
+  const id = bytesToUuid(reader)
+
+  //body
+  const contentBytes = reader.readRemainingBits()
+
+  const decoder = new TextDecoder("utf-8")
+  const content = decoder.decode(contentBytes)
+
+  return { chunks, currentChunk, type, id, content }
 }
+
