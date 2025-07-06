@@ -1,5 +1,8 @@
 import { BitReader } from "./bitReader.js";
 import { BitWriter } from "./bitWriter.js";
+/** @typedef {import('./types.d.ts').Header} Header */
+/** @typedef {import('./types.d.ts').Body} Body */
+/** @typedef {import('./types.d.ts').MultipartBody} MultipartBody*/
 
 const CHUNK_SIZE = 12500 // bytes
 const TYPE_TO_ID_MAP = {
@@ -15,6 +18,8 @@ const ID_TO_TYPE_MAP = {
   2: "PUT",
   3: "DELETE"
 }
+
+const TEXT_CONTENT_TYPES = ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
 
 function chunkBuffer(buffer, chunkSize) {
   /** @type(UInt8Array[]) */
@@ -60,8 +65,10 @@ function bytesToUuid(bitReader) {
   );
 }
 
-
-export function encodeMessage(message, requestType, id = crypto.randomUUID()) {
+/**
+ * @returns {Uint8Array[]}
+ */
+function binaryEncodeMessage(message, requestType, id = crypto.randomUUID()) {
   const encoder = new TextEncoder()
   const payload = encoder.encode(message)
 
@@ -93,8 +100,7 @@ export function encodeMessage(message, requestType, id = crypto.randomUUID()) {
   }, [])
 }
 
-
-export function decodeMessage(message) {
+function binaryDecodeMessage(message) {
   const reader = new BitReader(message)
 
   const version = reader.readBits(4)
@@ -108,13 +114,196 @@ export function decodeMessage(message) {
   const contentBytes = reader.readRemainingBits()
   const decoder = new TextDecoder("utf-8")
   const content = decoder.decode(contentBytes)
-  console.log(contentBytes)
-
 
   return { chunks, currentChunk, type, id, content }
 }
 
-encodeMessage("ligma ballz", "GET").forEach(v => {
-  console.log("Bytes:", [...v].map(b => b.toString(16).padStart(2, '0')).join(' '));
-  console.log(decodeMessage(v))
+function encodeRequestHeaders(requestHeaders) {
+  const msg = Object.keys(requestHeaders).reduce((acc, cur) => {
+    acc += `${cur}=${requestHeaders[cur]},`
+  }, "")
+
+  return msg.charAt(msg.length - 1) === "," ? msg.slice(0, -1) : msg
+}
+
+async function blobToBase64(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+
+  const binary = bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '');
+  return btoa(binary);
+}
+
+function base64ToFile(base64, filename, mimeType) {
+  const arr = base64.split(',');
+  const bstr = atob(arr.length > 1 ? arr[1] : arr[0])
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+
+  return new File([u8arr], filename, { type: mimeType });
+}
+
+/**
+  * @param {Header} header
+  * @returns {[string, string]}
+  */
+function encodeHeader(header) {
+  let encodedHeader = ""
+  encodedHeader += `Route: ${header.route}\n`
+  encodedHeader += `RequestHeaders: ${encodeRequestHeaders(header.requestHeaders)}\n`
+  encodedHeader += `ContentType: ${header.contentType}\n`
+  encodedHeader += '\r\n'
+
+  return [encodedHeader, header.requestType]
+}
+
+/**
+ * @param {MultipartBody} body 
+ * @returns {Promise<string>}
+ */
+async function encodeMulitpartBody(body) {
+  const textPart = `----\n${JSON.stringify(body.textContent)}\n----\n`
+
+  let filesPart = ""
+
+  for (const file of body.files) {
+    filesPart += `----\nFileName:${file.name}\nFileType:${file.type ?? 'text'}\n${await blobToBase64(file)}`
+  }
+  filesPart += '\n----'
+
+  return `${textPart}${filesPart}`
+}
+
+/** 
+ * @param {Body} body 
+ * @returns {Promise<string>}
+ */
+async function encodeBody(body) {
+  if (typeof body === "string") return body
+  if (body.textContent && body.files) return await encodeMulitpartBody(body)
+  return JSON.stringify(body)
+}
+
+/**
+  * @param {Header} header
+  * @param {Body} body
+  * @returns {Promise<string>}
+  */
+async function textEncodeMessage(header, body) {
+  const [encodedHeader, requestType] = encodeHeader(header)
+  const encodedBody = await encodeBody(body)
+
+  return [`${encodedHeader}${encodedBody}`, requestType]
+}
+
+/**
+ * @param {string} requestHeaders 
+ * @returns {Record<string, string>}
+ */
+function decodeRequestHeaders(requestHeaders) {
+  if (requestHeaders === '') return {}
+  const parts = requestHeaders.split(",")
+
+  return parts.reduce((acc, cur) => {
+    const [key, value] = cur.split("=")
+
+    return {
+      ...acc,
+      [key]: value
+    }
+  }, {})
+}
+
+/**
+ * @param {string} text
+ * @returns {Header}
+ */
+function decodeTextHeader(text) {
+  let [route, requestHeaders, contentType] = text.split("\n")
+  route = route.split("Route: ")[1]
+  requestHeaders = requestHeaders.split("RequestHeaders: ")[1]
+  requestHeaders = decodeRequestHeaders(requestHeaders)
+  contentType = contentType.split("ContentType: ")[1]
+
+  return {
+    route, requestHeaders, contentType
+  }
+}
+
+function decodeMultipartBody(body) {
+  const parts = body.split("----\n").filter(v => v !== '')
+  const text = parts[0]
+
+  const files = []
+
+  for (let i = 1; i < parts.length; i++) {
+    let [fileName, fileType, fileContent] = parts[i].split("\n")
+    fileName = fileName.split("FileName:")[1]
+    fileType = fileType.split("FileType:")[1]
+
+    files.push(base64ToFile(fileContent, fileName, fileType))
+  }
+
+  return {
+    textContent: JSON.parse(text),
+    files: files
+  }
+}
+
+function decodeBody(body, contentType) {
+  if (TEXT_CONTENT_TYPES.includes(contentType)) return body
+  if (contentType === "application/json") return JSON.parse(body)
+  return decodeMultipartBody(body)
+}
+
+/**
+ * @param {string} text - text to be decoded 
+ * @returns {[Header, Body]}
+ */
+function textDecodeMessage(text) {
+  let [header, body] = text.split("\r\n")
+
+  header = decodeTextHeader(header)
+  body = decodeBody(body, header.contentType)
+
+  return [header, body]
+}
+
+document.querySelector("input").addEventListener("change", async (event) => {
+  const files = event.target.files
+
+  const [encoded, type] = await textEncodeMessage({
+    route: "ligma",
+    requestHeaders: {},
+    requestType: "GET",
+    contentType: "multipart/form-data"
+  }, {
+    files: files,
+    textContent: { a: "a" }
+  })
+
+  const decoded = textDecodeMessage(encoded)
+
+  console.log(encoded)
+  console.log(decoded)
+
+  const reader = new FileReader()
+  reader.readAsText(decoded[1].files[0])
+
+  reader.onload = (e) => {
+    console.log(e.target.result)
+  }
 })
+
+/**
+  * @param {Header} header
+  * @param {Body} body
+  */
+export async function encodeMessage(header, body) {
+  const [textEncoded, requestType] = await textEncodeMessage(header, body)
+  return binaryEncodeMessage(textEncoded, requestType)
+}

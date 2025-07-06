@@ -126,11 +126,6 @@ defmodule WebRTCMessageDecoder do
         state
       )
       when version == @current_version do
-    IO.inspect(version)
-    IO.inspect(parts_count)
-    IO.inspect(index)
-    IO.inspect(req_type)
-    IO.inspect(rest)
     id = UUIDTools.binary_to_uuid(id)
     Logger.debug("recieved something #{id} #{index}/#{parts_count}")
 
