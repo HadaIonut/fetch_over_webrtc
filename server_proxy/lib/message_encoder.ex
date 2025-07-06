@@ -121,11 +121,17 @@ defmodule WebRTCMessageDecoder do
   @impl true
   def handle_cast(
         {:receive_message,
-         <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(36),
+         <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(16),
            rest::binary>>},
         state
       )
       when version == @current_version do
+    IO.inspect(version)
+    IO.inspect(parts_count)
+    IO.inspect(index)
+    IO.inspect(req_type)
+    IO.inspect(rest)
+    id = UUIDTools.binary_to_uuid(id)
     Logger.debug("recieved something #{id} #{index}/#{parts_count}")
 
     new_state =
@@ -252,6 +258,7 @@ defmodule WebRTCMessageDecoder do
 end
 
 defmodule WebRTCMessageEncoder do
+  # 12500 bytes
   @part_size 100_000
   @version 1
 
@@ -265,7 +272,9 @@ defmodule WebRTCMessageEncoder do
 
     Enum.with_index(parts)
     |> Enum.map(fn {part, index} ->
-      bit_head = <<@version::4, parts_count::16, index::16, req_type::4>> <> id
+      bit_head =
+        <<@version::4, parts_count::16, index::16, req_type::4>> <> UUIDTools.uuid_to_binary(id)
+
       bit_head <> part
     end)
   end

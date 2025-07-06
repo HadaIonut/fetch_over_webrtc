@@ -1,3 +1,5 @@
+import * as encoding from "./encoding.js"
+
 function sendSocketRequest(data) {
   const reqId = crypto.randomUUID()
   const dataToSend = { ...data, requestId: reqId }
@@ -86,11 +88,11 @@ await new Promise((res) => {
   socket.addEventListener("open", _ => res())
 })
 
-const roomId = "D86165A3-33BC-41DF-A611-EA056315A8B8"
+const roomId = "7D96BC1D-2997-4DF6-9A12-ADC9EC7AF476"
 
 console.log(await sendJoinRoomMessage(roomId))
 const datachannel = await startDataChannel(roomId)
 
-setInterval(() => datachannel.send("ping"), 1000)
+encoding.encodeMessage("ligma ballz", "GET").forEach(p => datachannel.send(p))
 
 datachannel.addEventListener("message", (event) => console.log("message: " + event.data))

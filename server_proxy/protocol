@@ -1,6 +1,6 @@
 Fetch Over WebRTC protocol message:
 
-0     4       20      36     40             328
+0     4       20      36     40             168
 ----------------------------------------------
 | Vers|Total   |Current| Req |  Request Id   |
 |	ion	|Parts   |Part   | type|  UUIDv4       |
