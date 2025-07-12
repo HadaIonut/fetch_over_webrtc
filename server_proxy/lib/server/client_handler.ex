@@ -48,6 +48,7 @@ defmodule ClientHandler do
       )
 
     [{_, rtc_handler_pid, _, _}] = Supervisor.which_children(supervisor)
+    Process.monitor(rtc_handler_pid)
 
     new_state =
       Map.put(state, :room_id, room_id)
@@ -92,6 +93,12 @@ defmodule ClientHandler do
   @impl true
   def handle_info({:send_message, msg}, state) do
     WebSockex.send_frame(state.websock_pid, {:text, msg})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:connection_state_change, :failed}, state) do
+    exit(:normal)
     {:noreply, state}
   end
 

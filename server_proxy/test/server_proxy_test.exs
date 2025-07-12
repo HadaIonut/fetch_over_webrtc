@@ -2,37 +2,24 @@ defmodule ServerProxyTest do
   use ExUnit.Case, async: true
   doctest ServerProxy
 
-  test "Server starts & stops" do
-    {server_pid, room_id} = Server.start()
-
-    assert(server_pid != nil)
-    assert(room_id != nil)
-
-    assert(Process.alive?(server_pid))
-
-    Server.stop(server_pid, room_id)
+  setup_all do
+    {:ok, room_id: GenServer.call(:server, {:get_room_id})}
   end
 
-  test "Client can join & leave the server" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, msg} = Client.join(room_id)
+  test "Client can join & leave the server", state do
+    {client_pid, msg} = Client.join(state[:room_id])
 
     assert(msg, "connection established")
 
-    send(server_pid, {:get_room_members, self()})
+    members = GenServer.call(:server, {:get_room_members})
 
-    receive do
-      {:members_response, members} ->
-        assert(length(members) == 1)
-    end
+    assert(length(members) == 1)
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
-  test "Clinet can ping the server" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
+  test "Clinet can ping the server", state do
+    {client_pid, _msg} = Client.join(state[:room_id])
 
     GenServer.cast(client_pid, {:ping_server})
 
@@ -42,15 +29,13 @@ defmodule ServerProxyTest do
         assert(message == "pong")
     end
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
-  test "Multiple Clinets can ping the server" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
-    {client_pid_2, _msg} = Client.join(room_id)
-    {client_pid_3, _msg} = Client.join(room_id)
+  test "Multiple Clinets can ping the server", state do
+    {client_pid, _msg} = Client.join(state[:room_id])
+    {client_pid_2, _msg} = Client.join(state[:room_id])
+    {client_pid_3, _msg} = Client.join(state[:room_id])
 
     GenServer.cast(client_pid, {:ping_server})
     GenServer.cast(client_pid_2, {:ping_server})
@@ -74,13 +59,11 @@ defmodule ServerProxyTest do
         assert(message == "pong")
     end
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
-  test "Client can send json to the server, have it relayed and response sent back" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
+  test "Client can send json to the server, have it relayed and response sent back", state do
+    {client_pid, _msg} = Client.join(state[:room_id])
 
     header = %Message.Header{
       RequestType: "POST",
@@ -104,13 +87,12 @@ defmodule ServerProxyTest do
         assert(rec_body == body)
     end
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
-  test "Client can send get request to the server, have it relayed and response sent back" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
+  test "Client can send get request to the server, have it relayed and response sent back",
+       state do
+    {client_pid, _msg} = Client.join(state[:room_id])
 
     header = %Message.Header{
       RequestType: "GET",
@@ -133,13 +115,11 @@ defmodule ServerProxyTest do
         )
     end
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
-  test "Client can send file to the server, have it relayed and response sent back" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
+  test "Client can send file to the server, have it relayed and response sent back", state do
+    {client_pid, _msg} = Client.join(state[:room_id])
 
     header = %Message.Header{
       RequestType: "POST",
@@ -175,8 +155,7 @@ defmodule ServerProxyTest do
         )
     end
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 
   def run(counter, _request_id_1, _request_id_2, _header_1, _body_1, _header_2, _body_2)
@@ -202,10 +181,9 @@ defmodule ServerProxyTest do
     end
   end
 
-  test "Multile clients can send messages" do
-    {server_pid, room_id} = Server.start()
-    {client_pid, _msg} = Client.join(room_id)
-    {client_pid_2, _msg} = Client.join(room_id)
+  test "Multile clients can send messages", state do
+    {client_pid, _msg} = Client.join(state[:room_id])
+    {client_pid_2, _msg} = Client.join(state[:room_id])
 
     header_1 = %Message.Header{
       RequestType: "POST",
@@ -241,7 +219,6 @@ defmodule ServerProxyTest do
 
     run(0, request_id_1, request_id_2, header_1, body_1, header_2, body_2)
 
-    Client.leave(client_pid, room_id)
-    Server.stop(server_pid, room_id)
+    Client.leave(client_pid, state[:room_id])
   end
 end

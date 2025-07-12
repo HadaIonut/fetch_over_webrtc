@@ -125,6 +125,15 @@ defmodule WebRTCHandler do
   end
 
   @impl true
+  def handle_cast(
+        {:connection_state_change, :failed} = msg,
+        %{parent_pid: parent_pid} = state
+      ) do
+    send(parent_pid, msg)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_cast(unknown, state) do
     Logger.debug("UNKNOWN MESSAGE RECEIVED, #{inspect(unknown)}")
 

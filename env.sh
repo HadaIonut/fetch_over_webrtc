@@ -9,7 +9,7 @@ tmux send-keys "nvim ." C-m
 
 tmux new-window  -n "proxyServer"
 tmux send-keys "cd ~/projects/fetch_over_webrtc/server_proxy/" C-m
-tmux send-keys "iex -S mix" C-m
+tmux send-keys "GDK_BACKEND=x11 iex -S mix" C-m
 
 tmux new-window  -n "sdpServer"
 tmux send-keys "cd ~/projects/fetch_over_webrtc/sdp_server/" C-m

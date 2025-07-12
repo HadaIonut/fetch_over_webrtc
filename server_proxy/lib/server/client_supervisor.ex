@@ -11,6 +11,7 @@ defmodule ClientSupervisor do
   end
 
   def start_client(id) do
-    DynamicSupervisor.start_child(__MODULE__, {ClientHandler, id})
+    spec = Supervisor.child_spec({ClientHandler, id}, restart: :temporary)
+    DynamicSupervisor.start_child(__MODULE__, spec)
   end
 end
