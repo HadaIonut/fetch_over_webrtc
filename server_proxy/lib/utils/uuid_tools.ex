@@ -14,13 +14,8 @@ defmodule UUIDTools do
   end
 
   def uuid_to_binary(uuid) do
-    IO.inspect("rec uuid #{uuid}")
-
     out =
       String.replace(uuid, "-", "") |> Base.decode16!(case: :lower)
-
-    IO.inspect("enc uuid #{out}")
-    IO.inspect("enc + dec uuid #{binary_to_uuid(out)}")
 
     out
   end

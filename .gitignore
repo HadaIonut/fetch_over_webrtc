@@ -1,1 +1,5 @@
 sdp_server/build
+
+.elixir-tools/
+.elixir-ls/
+.elixir_ls/

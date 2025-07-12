@@ -44,8 +44,6 @@ defmodule ServerProxy do
     resp_header =
       resp.headers["content-type"] |> Enum.at(0) |> String.split(";") |> Enum.at(0)
 
-    IO.inspect("received req_id #{request_id}")
-
     encoded =
       req_headers
       |> Map.put(:ContentType, resp_header)

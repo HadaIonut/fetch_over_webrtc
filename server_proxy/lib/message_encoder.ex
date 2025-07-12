@@ -170,8 +170,6 @@ defmodule WebRTCMessageDecoder do
         state
       )
       when version != @current_version do
-    IO.inspect("Received packet with wrong version")
-
     {:noreply, state}
   end
 

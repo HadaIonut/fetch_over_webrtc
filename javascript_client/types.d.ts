@@ -12,3 +12,9 @@ export type MultipartBody = {
 }
 
 export type Body = string | Record<string, any> | MultipartBody
+
+export type FetchMockParams = {
+  method?: string,
+  headers?: Record<string, string>,
+  body?: any,
+}

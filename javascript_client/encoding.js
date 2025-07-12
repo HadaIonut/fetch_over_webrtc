@@ -125,11 +125,12 @@ async function encodeMulitpartBody(body) {
 
 /** 
  * @param {Body} body 
+ * @param {string} contentType 
  * @returns {Promise<string>}
  */
-async function encodeBody(body) {
-  if (typeof body === "string") return body
-  if (body.textContent && body.files) return await encodeMulitpartBody(body)
+async function encodeBody(body, contentType) {
+  if (contentType.startsWith("text/")) return body
+  if (contentType === "multipart/form-data") return await encodeMulitpartBody(body)
   return JSON.stringify(body)
 }
 
@@ -202,7 +203,7 @@ function decodeBody(body, contentType) {
   */
 export async function textEncodeMessage(header, body) {
   const [encodedHeader, requestType] = encodeHeader(header)
-  const encodedBody = await encodeBody(body)
+  const encodedBody = await encodeBody(body, header.contentType ?? "text/plain")
 
   return [`${encodedHeader}${encodedBody}`, requestType]
 }
@@ -219,7 +220,6 @@ export function binaryEncodeMessage(message, requestType, id = crypto.randomUUID
   return chunks.reduce((acc, cur, index) => {
     const writer = new BitWriter((4 + 16 + 16 + 4) / 8)
 
-    console.log("chunks", chunks.length)
     writer.writeBits(1, 4)
     writer.writeBits(chunks.length, 16)
     writer.writeBits(index, 16)

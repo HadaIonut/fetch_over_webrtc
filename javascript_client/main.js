@@ -1,6 +1,7 @@
 import * as encoding from "./encoding.js"
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
+/** @typedef {import('./types.d.ts').FetchMockParams} FetchMockParams */
 
 function sendSocketRequest(data) {
   const reqId = crypto.randomUUID()
@@ -13,7 +14,7 @@ function sendSocketRequest(data) {
   })
 }
 
-export function sendJoinRoomMessage(roomId) {
+function sendJoinRoomMessage(roomId) {
   const joinRoomMessage = {
     type: "join",
     roomId: roomId
@@ -25,7 +26,7 @@ export function sendJoinRoomMessage(roomId) {
 /**
  * @returns {Promise<RTCDataChannel>}
  */
-export async function startDataChannel(roomId) {
+async function startDataChannel(roomId) {
   peerConnection = new RTCPeerConnection()
   const dataChannel = peerConnection.createDataChannel("ligma")
   dataChannel.binaryType = 'arraybuffer'
@@ -41,7 +42,6 @@ export async function startDataChannel(roomId) {
 
   return new Promise((res) => {
     dataChannel.addEventListener("open", () => {
-      console.log("channel opened")
       res(dataChannel)
     })
   })
@@ -95,40 +95,40 @@ await new Promise((res) => {
   socket.addEventListener("open", _ => res())
 })
 
-const roomId = "E4086473-1622-4C62-971E-67E9F5714FDE"
+/** @type{RTCDataChannel} */
+let dataChannel
 
-console.log(await sendJoinRoomMessage(roomId))
-const datachannel = await startDataChannel(roomId)
+export async function startConnection(roomId) {
+  await sendJoinRoomMessage(roomId)
+  dataChannel = await startDataChannel(roomId)
 
-datachannel.addEventListener("message", (event) => {
-  const data = event.data
-  const { chunks, currentChunk, type, id, content } = encoding.binaryDecodeMessage(data)
+  dataChannel.addEventListener("message", (event) => {
+    const data = event.data
+    const { chunks, currentChunk, type, id, content } = encoding.binaryDecodeMessage(data)
 
-  console.log(Object.keys(pending))
-  console.log(id)
+    pending[id].parts[currentChunk] = content
+    pending[id].partsReceived++
+    pending[id].type = type
 
-  pending[id].parts[currentChunk] = content
-  pending[id].partsReceived++
-  pending[id].type = type
+    if (pending[id].partsReceived !== chunks) return
 
-  if (pending[id].partsReceived !== chunks) return
+    const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
 
-  const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
-
-  pending[id].res({ header, body })
-})
+    pending[id].res({ header, body })
+  })
+}
 
 /**
   * @param {Header} header 
   * @param {Body} body
   * @returns {Promise<unknown>}
   */
-export async function sendMessage(header, body) {
+export async function sendMessage(header, body = "") {
   const [payload, requestType] = await encoding.textEncodeMessage(header, body)
   const requestId = crypto.randomUUID()
   const encoded = encoding.binaryEncodeMessage(payload, requestType, requestId)
 
-  encoded.forEach(p => datachannel.send(p))
+  encoded.forEach(p => dataChannel.send(p))
 
   return new Promise((res, rej) => {
     const timeoutId = setTimeout(() => rej("timeout"), 10000)
@@ -136,4 +136,45 @@ export async function sendMessage(header, body) {
   })
 }
 
-console.log(await sendMessage({ route: "https://google.com", requestType: "GET" }, ""))
+/**
+ * @param {string} url 
+ * @param {FetchMockParams} params
+ */
+export async function fetchOverWebRTC(url, params) {
+  const method = params.method ?? 'GET'
+  const fallbackContentType = method === 'GET' ? null : 'application/json'
+
+  const requestHeaders = params.headers ?? {}
+  const contentType = requestHeaders["Content-Type"] ?? requestHeaders["content-type"]
+
+  delete requestHeaders["Content-Type"]
+  delete requestHeaders["content-type"]
+
+  /** @type(Header) */
+  const header = {
+    route: url,
+    requestHeaders: requestHeaders,
+    contentType: contentType ?? fallbackContentType,
+    requestType: method
+  }
+
+  const body = params.body
+
+  return await sendMessage(header, body)
+}
+
+let override = false
+
+export function overrideFetch() {
+  override = true
+}
+
+const oldFetch = window.fetch
+
+window.fetch = (url, params = {}, forceWebRTC) => {
+  const useRTC = forceWebRTC === undefined ? overrideFetch : forceWebRTC
+
+  if (useRTC) return fetchOverWebRTC(url, params)
+  return oldFetch(url, params)
+}
+

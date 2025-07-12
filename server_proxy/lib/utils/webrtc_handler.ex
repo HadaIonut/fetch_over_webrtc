@@ -5,7 +5,7 @@ defmodule WebRTCHandler do
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
   @impl true
-  def init({peer_connection, room_id, user_id, parent_pid}) do
+  def init({peer_connection, room_id, user_id, parent_pid} = args) do
     {:ok,
      %WebRTCHandler{
        peer_connection: peer_connection,
@@ -56,7 +56,7 @@ defmodule WebRTCHandler do
           decoder_pid: decoder_pid
         } = state
       ) do
-    Logger.warning("Received data from #{room_id} #{user_id}")
+    Logger.info("Received data from #{room_id} #{user_id}")
 
     {new_state, decoder_pid} =
       if decoder_pid == nil do
