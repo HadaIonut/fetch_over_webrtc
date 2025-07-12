@@ -4,8 +4,12 @@ defmodule WebRTCHandler do
 
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
+  def start_link(args) do
+    GenServer.start_link(__MODULE__, args)
+  end
+
   @impl true
-  def init({peer_connection, room_id, user_id, parent_pid} = args) do
+  def init({peer_connection, room_id, user_id, parent_pid}) do
     {:ok,
      %WebRTCHandler{
        peer_connection: peer_connection,

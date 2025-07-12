@@ -1,6 +1,6 @@
 import { startConnection, sendMessage, overrideFetch } from "./main.js"
 
-const roomId = "217933F2-276C-48C1-BB2C-5AB42EAB4EAC"
+const roomId = "B169005F-5272-4BCA-A7C4-3599B77A233D"
 
 await startConnection(roomId)
 overrideFetch()

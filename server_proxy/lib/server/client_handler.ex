@@ -41,7 +41,13 @@ defmodule ClientHandler do
 
     WebSockex.send_frame(websock_pid, {:text, message})
 
-    {:ok, rtc_handler_pid} = GenServer.start(WebRTCHandler, {pc, room_id, user_id, self()})
+    {:ok, supervisor} =
+      Supervisor.start_link(
+        [{WebRTCHandler, {pc, room_id, user_id, self()}}],
+        strategy: :one_for_one
+      )
+
+    [{_, rtc_handler_pid, _, _}] = Supervisor.which_children(supervisor)
 
     new_state =
       Map.put(state, :room_id, room_id)
