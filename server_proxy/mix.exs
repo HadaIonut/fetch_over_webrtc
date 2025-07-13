@@ -15,7 +15,7 @@ defmodule ServerProxy.MixProject do
   def application do
     [
       mod: {Server, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :wx, :runtime_tools, :observer]
     ]
   end
 
