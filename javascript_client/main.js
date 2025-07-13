@@ -60,45 +60,49 @@ async function handleIceCandidate(candidate) {
 /** @type(RTCPeerConnection) */
 let peerConnection
 
-const socket = new WebSocket("ws://127.0.0.1:3000/ws")
 
+let socket
 const pending = {}
 
-socket.addEventListener("message", (event) => {
-  let data
-  try {
-    data = JSON.parse(event.data)
-  } catch (e) {
-    console.log("something went wrong trying to decode: " + event.data)
-    return
-  }
-  if (!pending[data.requestId]) {
-    switch (data.type) {
-      case "userOfferReply":
-        handleUserOfferReply(data.sdpCert)
-        break;
-      case "ICECandidate":
-        handleIceCandidate(data.ICECandidate)
-        break;
-      default:
-        console.log("non response message: ", data)
-        break
+async function startWebSocket(url) {
+  socket = new WebSocket(url)
+  socket.addEventListener("message", (event) => {
+    let data
+    try {
+      data = JSON.parse(event.data)
+    } catch (e) {
+      console.log("something went wrong trying to decode: " + event.data)
+      return
     }
-    return
-  }
-  pending[data.requestId].res(data)
-  clearTimeout(pending[data.requestId].timeoutId)
-  delete pending[data.requestId]
-})
+    if (!pending[data.requestId]) {
+      switch (data.type) {
+        case "userOfferReply":
+          handleUserOfferReply(data.sdpCert)
+          break;
+        case "ICECandidate":
+          handleIceCandidate(data.ICECandidate)
+          break;
+        default:
+          console.log("non response message: ", data)
+          break
+      }
+      return
+    }
+    pending[data.requestId].res(data)
+    clearTimeout(pending[data.requestId].timeoutId)
+    delete pending[data.requestId]
+  })
 
-await new Promise((res) => {
-  socket.addEventListener("open", _ => res())
-})
+  await new Promise((res) => {
+    socket.addEventListener("open", _ => res())
+  })
+}
 
 /** @type{RTCDataChannel} */
 let dataChannel
 
-export async function startConnection(roomId) {
+export async function startConnection(roomId, webSocketUrl) {
+  await startWebSocket(webSocketUrl)
   await sendJoinRoomMessage(roomId)
   dataChannel = await startDataChannel(roomId)
 

@@ -1,11 +1,12 @@
 import { startConnection, sendMessage, overrideFetch } from "./main.js"
 
+const WEB_SOCKET_URL = "ws://127.0.0.1:3000/ws"
 overrideFetch()
 
 document.querySelector("#roomId").addEventListener("change", async (event) => {
   const roomId = event.target.value
 
-  await startConnection(roomId)
+  await startConnection(roomId, WEB_SOCKET_URL)
 
   console.log("get echo fetch overriden", await fetch("http://localhost:8080/ping"))
 
