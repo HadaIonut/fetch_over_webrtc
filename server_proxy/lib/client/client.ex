@@ -66,7 +66,7 @@ defmodule Client do
   end
 
   def leave(parent_pid, room_id) do
-    GenServer.call(parent_pid, {:leave, room_id})
+    GenServer.cast(parent_pid, {:leave, room_id})
   end
 
   defp send_leave_room_message(socket_pid, negociator_pid, room_id) do
@@ -168,7 +168,7 @@ defmodule Client do
       |> Map.put("pids", {negociator_pid, socket_pid})
 
     receive do
-      {:ex_webrtc, _, {:ice_connection_state_change, :completed}} ->
+      {:ex_webrtc, _, {:data_channel_state_change, _, :open}} ->
         {:reply, "connection established", new_state}
 
       {:ex_webrtc, _, {:ice_connection_state_change, :failed}} ->
@@ -177,11 +177,21 @@ defmodule Client do
   end
 
   @impl true
-  def handle_call({:leave, room_id}, _from, state) do
+  def handle_cast({:leave, room_id}, state) do
     {negociator_pid, socket_pid} = Map.get(state, "pids")
+
     send_leave_room_message(socket_pid, negociator_pid, room_id)
 
-    {:reply, nil, state}
+    {room, owner} = Map.get(state, "connection")
+
+    {data_channel, pc} =
+      Map.get(state, room)
+      |> Map.get(owner)
+
+    ExWebRTC.PeerConnection.close_data_channel(pc, data_channel)
+    ExWebRTC.PeerConnection.close(pc)
+
+    {:stop, :shutdown, state}
   end
 
   @impl true
@@ -224,26 +234,8 @@ defmodule Client do
 
         {:noreply, state}
 
-      {:ex_webrtc, _, {:ice_candidate, candidate}} ->
-        {room, owner} = Map.get(state, "connection")
-        {_, socket_pid} = Map.get(state, "pids")
-
-        request_id = UUID.uuid4()
-
-        message =
-          JSON.encode!(%Messages.SendICE{
-            requestId: request_id,
-            roomId: room,
-            targetUserId: owner,
-            iceCandidate: candidate |> ExWebRTC.ICECandidate.to_json() |> JSON.encode!()
-          })
-
-        WebSockex.send_frame(socket_pid, {:text, message})
-
-        {:noreply, state}
-
-      _unknown ->
-        Logger.debug("CLINET RECIEVED UNHANDLED MESSAGE")
+      unknown ->
+        Logger.debug("CLINET RECIEVED UNHANDLED MESSAGE #{inspect(unknown)}")
 
         {:noreply, state}
     end

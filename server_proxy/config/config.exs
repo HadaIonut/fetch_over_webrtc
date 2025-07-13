@@ -1,1 +1,1 @@
-Application.put_env(:logger, :level, :warning)
+Application.put_env(:logger, :level, :debug)

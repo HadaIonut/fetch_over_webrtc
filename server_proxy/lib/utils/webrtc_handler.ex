@@ -151,7 +151,23 @@ defmodule WebRTCHandler do
 
   @impl true
   def handle_cast(
+        {:ice_connection_state_change, :failed},
+        state
+      ) do
+    {:stop, :shutdown, state}
+  end
+
+  @impl true
+  def handle_cast(
         {:connection_state_change, :failed},
+        state
+      ) do
+    {:stop, :shutdown, state}
+  end
+
+  @impl true
+  def handle_cast(
+        {:data_channel_state_change, _, :closed},
         state
       ) do
     {:stop, :shutdown, state}
