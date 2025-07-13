@@ -203,6 +203,7 @@ fn room_leave(rooms: Rooms, room_id, user_id) {
 
           json.object([
             #("type", json.string("userLeft")),
+            #("user", json.string(user_id)),
             #("room", room_encoder(room)),
           ])
           |> json.to_string()

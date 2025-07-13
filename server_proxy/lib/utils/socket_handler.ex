@@ -33,11 +33,15 @@ defmodule SocketHandler do
            %{"roomId" => Map.get(room, "room_id"), "members" => Map.get(room, "members")}}
         )
 
-      {:ok, %{"type" => type, "room" => room}} when type == "userLeft" ->
+      {:ok, %{"type" => type, "user" => user_id, "room" => room}} when type == "userLeft" ->
         send(
           state.parent,
           {:user_left,
-           %{"roomId" => Map.get(room, "room_id"), "members" => Map.get(room, "members")}}
+           %{
+             "roomId" => Map.get(room, "room_id"),
+             "userId" => user_id,
+             "members" => Map.get(room, "members")
+           }}
         )
 
       {:ok, %{"type" => type} = res} when type == "ICECandidate" ->

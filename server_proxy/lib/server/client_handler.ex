@@ -107,6 +107,10 @@ defmodule ClientHandler do
     {:via, Registry, {Registry.UserNameRegistry, {:user_worker, id}}}
   end
 
+  def close(room_id, user_id) do
+    GenServer.stop(via_name("#{room_id}_#{user_id}"))
+  end
+
   def start_connection(client_handler_pid, room_id, user_id, sdp_cert, websock_pid) do
     Logger.debug(
       "SERVER: start_connection casted to #{via_name(client_handler_pid) |> inspect()}"

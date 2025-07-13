@@ -121,6 +121,20 @@ defmodule Server do
 
   @impl true
   def handle_info(
+        {:user_left,
+         %{
+           "roomId" => room_id,
+           "userId" => user_id
+         }},
+        state
+      ) do
+    ClientHandler.close(room_id, user_id)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(
         {:ice_candidate,
          %{
            "sourceUserId" => source_user_id,
