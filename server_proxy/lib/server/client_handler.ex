@@ -19,7 +19,9 @@ defmodule ClientHandler do
   @impl true
   def handle_cast({:start_connection, room_id, user_id, sdp_cert, websock_pid}, state) do
     Logger.debug("SERVER: start_connection started")
-    {:ok, proxy_pid} = GenServer.start(ServerProxy, %{})
+    id = "#{room_id}_#{user_id}"
+
+    proxy_pid = via_name(id, :server_proxy)
 
     {:ok, pc} =
       ExWebRTC.PeerConnection.start(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
@@ -41,14 +43,9 @@ defmodule ClientHandler do
 
     WebSockex.send_frame(websock_pid, {:text, message})
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [{WebRTCHandler, {pc, room_id, user_id, self()}}],
-        strategy: :one_for_one
-      )
+    rtc_handler_pid = via_name(id, :webrtc_handler)
 
-    [{_, rtc_handler_pid, _, _}] = Supervisor.which_children(supervisor)
-    Process.monitor(rtc_handler_pid)
+    GenServer.cast(rtc_handler_pid, {:set_data, {pc, room_id, user_id, self()}})
 
     new_state =
       Map.put(state, :room_id, room_id)
@@ -96,16 +93,14 @@ defmodule ClientHandler do
     {:noreply, state}
   end
 
-  @impl true
-  def handle_info({:connection_state_change, :failed}, state) do
-    exit(:normal)
-    {:noreply, state}
-  end
-
   def handle_info(msg, state) do
     Logger.debug("UNKNOWN MESSAGE HANDLED BY CLIENT_HANDLER, #{inspect(msg)}")
 
     {:noreply, state}
+  end
+
+  defp via_name(id, flag) do
+    {:via, Registry, {Registry.UserNameRegistry, {flag, id}}}
   end
 
   defp via_name(id) do
@@ -130,7 +125,32 @@ defmodule ClientHandler do
     )
   end
 
-  def start_link(id) do
+  def gen_server_start_link(id) do
     GenServer.start_link(__MODULE__, %{}, name: via_name(id))
+  end
+
+  def start_link(id) do
+    Supervisor.start_link(
+      [
+        %{
+          id: "client",
+          start: {ClientHandler, :gen_server_start_link, [id]},
+          restart: :permanent
+        },
+        %{
+          id: "proxy",
+          start: {ServerProxy, :start_link, [id]},
+          restart: :permanent
+        },
+        %{
+          id: "rtcHandler",
+          start: {WebRTCHandler, :start_link, [id]},
+          restart: :permanent
+        }
+      ],
+      strategy: :one_for_all,
+      max_restarts: 0,
+      max_seconds: 1
+    )
   end
 end

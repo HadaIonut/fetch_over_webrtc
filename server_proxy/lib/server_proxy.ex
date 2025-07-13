@@ -2,6 +2,14 @@ defmodule ServerProxy do
   @text_encoding_types ["text/plain", "text/html", "text/css", "text/javascript", "text/csv"]
   use GenServer
 
+  defp via_name(id) do
+    {:via, Registry, {Registry.UserNameRegistry, {:server_proxy, id}}}
+  end
+
+  def start_link(id) do
+    GenServer.start_link(ServerProxy, %{}, name: via_name(id))
+  end
+
   @impl true
   def init(state \\ %{}) do
     {:ok, state}

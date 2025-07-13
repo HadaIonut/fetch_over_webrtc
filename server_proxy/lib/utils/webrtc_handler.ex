@@ -4,8 +4,12 @@ defmodule WebRTCHandler do
 
   defstruct [:peer_connection, :room_id, :user_id, :parent_pid, :decoder_pid]
 
-  def start_link(args) do
-    GenServer.start_link(__MODULE__, args)
+  defp via_name(id) do
+    {:via, Registry, {Registry.UserNameRegistry, {:webrtc_handler, id}}}
+  end
+
+  def start_link(id) do
+    GenServer.start_link(__MODULE__, %{}, name: via_name(id))
   end
 
   @impl true
@@ -20,8 +24,29 @@ defmodule WebRTCHandler do
   end
 
   @impl true
+  def init(_) do
+    {:ok, %WebRTCHandler{}}
+  end
+
+  @impl true
   def handle_cast({:add_user_id, user_id}, state) do
     {:noreply, Map.put(state, :user_id, user_id)}
+  end
+
+  @impl true
+  def handle_cast(
+        {:set_data, {peer_connection, room_id, user_id, parent_pid}},
+        _
+      ) do
+    Logger.debug("setting rtc handler data")
+
+    {:noreply,
+     %WebRTCHandler{
+       peer_connection: peer_connection,
+       room_id: room_id,
+       user_id: user_id,
+       parent_pid: parent_pid
+     }}
   end
 
   @impl true
@@ -126,11 +151,10 @@ defmodule WebRTCHandler do
 
   @impl true
   def handle_cast(
-        {:connection_state_change, :failed} = msg,
-        %{parent_pid: parent_pid} = state
+        {:connection_state_change, :failed},
+        state
       ) do
-    send(parent_pid, msg)
-    {:noreply, state}
+    {:stop, :shutdown, state}
   end
 
   @impl true

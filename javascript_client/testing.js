@@ -6,6 +6,17 @@ document.querySelector("#roomId").addEventListener("change", async (event) => {
   const roomId = event.target.value
 
   await startConnection(roomId)
+
+  console.log("get echo fetch overriden", await fetch("http://localhost:8080/ping"))
+
+  console.log("post echo fetch overriden ", await fetch("http://localhost:8080/echo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: {
+      a: "a",
+      b: "b"
+    }
+  }))
 })
 
 document.querySelector("#fileUpload").addEventListener("change", async (event) => {
@@ -24,13 +35,4 @@ document.querySelector("#fileUpload").addEventListener("change", async (event) =
 })
 
 
-console.log("get echo fetch overriden", await fetch("http://localhost:8080/ping"))
 
-console.log("post echo fetch overriden ", await fetch("http://localhost:8080/echo", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: {
-    a: "a",
-    b: "b"
-  }
-}))
