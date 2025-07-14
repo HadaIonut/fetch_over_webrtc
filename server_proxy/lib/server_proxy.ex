@@ -52,16 +52,36 @@ defmodule ServerProxy do
     resp_header =
       resp.headers["content-type"] |> Enum.at(0) |> String.split(";") |> Enum.at(0)
 
+    msg =
+      case resp_header do
+        "text/html" ->
+          HtmlEncoder.encode(resp.body)
+
+        _ ->
+          resp.body
+      end
+
+    send_message(req_headers, resp_header, msg, request_id, peer_connection, data_channel)
+
+    {:noreply, state}
+  end
+
+  def send_message(
+        req_headers,
+        resp_header,
+        msg,
+        request_id,
+        peer_connection,
+        data_channel
+      ) do
     encoded =
       req_headers
       |> Map.put(:ContentType, resp_header)
-      |> WebRTCMessageEncoder.encode_message(resp.body, request_id)
+      |> WebRTCMessageEncoder.encode_message(msg, request_id)
 
     Enum.each(encoded, fn part ->
       ExWebRTC.PeerConnection.send_data(peer_connection, data_channel, part, :binary)
     end)
-
-    {:noreply, state}
   end
 
   def relay(pid, element) do

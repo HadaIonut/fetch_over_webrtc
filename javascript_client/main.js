@@ -3,6 +3,24 @@ import * as encoding from "./encoding.js"
 /** @typedef {import('./types.d.ts').Body} Body */
 /** @typedef {import('./types.d.ts').FetchMockParams} FetchMockParams */
 
+/** @type{RTCDataChannel} */
+let dataChannel
+let override = false
+const oldFetch = window.fetch
+
+/** @type(RTCPeerConnection) */
+let peerConnection
+
+let socket
+const pending = {}
+
+window.fetch = (url, params = {}, forceWebRTC) => {
+  const useRTC = forceWebRTC === undefined ? overrideFetch : forceWebRTC
+
+  if (useRTC) return fetchOverWebRTC(url, params)
+  return oldFetch(url, params)
+}
+
 function sendSocketRequest(data) {
   const reqId = crypto.randomUUID()
   const dataToSend = { ...data, requestId: reqId }
@@ -57,13 +75,6 @@ async function handleIceCandidate(candidate) {
   await peerConnection.addIceCandidate(candidateJson)
 }
 
-/** @type(RTCPeerConnection) */
-let peerConnection
-
-
-let socket
-const pending = {}
-
 async function startWebSocket(url) {
   socket = new WebSocket(url)
   socket.addEventListener("message", (event) => {
@@ -97,9 +108,6 @@ async function startWebSocket(url) {
     socket.addEventListener("open", _ => res())
   })
 }
-
-/** @type{RTCDataChannel} */
-let dataChannel
 
 export async function startConnection(roomId, webSocketUrl) {
   await startWebSocket(webSocketUrl)
@@ -167,18 +175,6 @@ export async function fetchOverWebRTC(url, params) {
   return await sendMessage(header, body)
 }
 
-let override = false
-
 export function overrideFetch() {
   override = true
 }
-
-const oldFetch = window.fetch
-
-window.fetch = (url, params = {}, forceWebRTC) => {
-  const useRTC = forceWebRTC === undefined ? overrideFetch : forceWebRTC
-
-  if (useRTC) return fetchOverWebRTC(url, params)
-  return oldFetch(url, params)
-}
-

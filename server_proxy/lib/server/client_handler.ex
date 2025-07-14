@@ -24,7 +24,7 @@ defmodule ClientHandler do
     proxy_pid = via_name(id, :server_proxy)
 
     {:ok, pc} =
-      ExWebRTC.PeerConnection.start(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
+      ExWebRTC.PeerConnection.start_link(ice_servers: [%{urls: "stun:stun.l.google.com:19302"}])
 
     sdp_cert = sdp_cert |> JSON.decode!() |> ExWebRTC.SessionDescription.from_json()
     ExWebRTC.PeerConnection.set_remote_description(pc, sdp_cert)
