@@ -55,7 +55,7 @@ defmodule ServerProxy do
     msg =
       case resp_header do
         "text/html" ->
-          HtmlEncoder.encode(resp.body)
+          HtmlEncoder.encode(resp.body, request_id, peer_connection, data_channel)
 
         _ ->
           resp.body

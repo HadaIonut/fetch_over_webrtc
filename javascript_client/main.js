@@ -109,25 +109,52 @@ async function startWebSocket(url) {
   })
 }
 
+/**
+ * @param {MessageEvent} event 
+ */
+function handleDataChannelMessage(event) {
+  const data = event.data
+  const { chunks, hasFrags, currentChunk, type, id, content, fragId } = encoding.binaryDecodeMessage(data)
+
+  const [left, right] = content.split("\n---frags---\n")
+
+  if (right) {
+    pending[id].parts[currentChunk] = left
+    pending[id].parts_done = true
+    pending[id].parts_returned = false
+
+    if (right.trim())
+      pending[id].frags.push(right)
+  } else if (!pending[id].parts_done) {
+    pending[id].parts[currentChunk] = left
+  } else {
+    if (pending[id].frags[fragId]) pending[id].frags[fragId] += left
+    else pending[id].frags[fragId] = left
+
+    if (left.endsWith("\r\n")) console.log(pending[id].frags[fragId])
+  }
+
+  pending[id].partsReceived++
+  pending[id].type = type
+
+  const allChunksReceived = pending[id].partsReceived === chunks
+  const allPartsRecieved = pending[id].parts_done
+  const returnedParts = pending[id].parts_returned
+
+  if (!allChunksReceived && !(allPartsRecieved && returnedParts)) return
+  pending[id].parts_returned = true
+
+  const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
+
+  pending[id].res({ header, body })
+}
+
 export async function startConnection(roomId, webSocketUrl) {
   await startWebSocket(webSocketUrl)
   await sendJoinRoomMessage(roomId)
   dataChannel = await startDataChannel(roomId)
 
-  dataChannel.addEventListener("message", (event) => {
-    const data = event.data
-    const { chunks, currentChunk, type, id, content } = encoding.binaryDecodeMessage(data)
-
-    pending[id].parts[currentChunk] = content
-    pending[id].partsReceived++
-    pending[id].type = type
-
-    if (pending[id].partsReceived !== chunks) return
-
-    const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
-
-    pending[id].res({ header, body })
-  })
+  dataChannel.addEventListener("message", handleDataChannelMessage)
 }
 
 /**
@@ -144,7 +171,7 @@ export async function sendMessage(header, body = "") {
 
   return new Promise((res, rej) => {
     const timeoutId = setTimeout(() => rej("timeout"), 10000)
-    pending[requestId] = { res, rej, timeoutId, parts: [], type: "", partsReceived: 0 }
+    pending[requestId] = { res, rej, timeoutId, parts: [], type: "", partsReceived: 0, partsDone: false, frags: {} }
   })
 }
 

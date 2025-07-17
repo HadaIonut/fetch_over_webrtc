@@ -141,7 +141,7 @@ async function encodeBody(body, contentType) {
  * @returns {Record<string, string>}
  */
 function decodeRequestHeaders(requestHeaders) {
-  if (requestHeaders === '') return {}
+  if (requestHeaders === '' || !requestHeaders) return {}
   const parts = requestHeaders.split(",")
 
   return parts.reduce((acc, cur) => {
@@ -161,9 +161,9 @@ function decodeRequestHeaders(requestHeaders) {
 function decodeTextHeader(text) {
   let [route, requestHeaders, contentType] = text.split("\n")
   route = route.split("Route: ")[1]
-  requestHeaders = requestHeaders.split("RequestHeaders: ")[1]
+  requestHeaders = requestHeaders?.split("RequestHeaders: ")[1]
   requestHeaders = decodeRequestHeaders(requestHeaders)
-  contentType = contentType.split("ContentType: ")[1]
+  contentType = contentType?.split("ContentType: ")?.[1]
 
   return {
     route, requestHeaders, contentType
@@ -193,7 +193,9 @@ function decodeMultipartBody(body) {
 function decodeBody(body, contentType) {
   if (TEXT_CONTENT_TYPES.includes(contentType)) return body
   if (contentType === "application/json") return JSON.parse(body)
-  return decodeMultipartBody(body)
+  if (contentType === "multipart/form-data") return decodeMultipartBody(body)
+
+  return body
 }
 
 /**
@@ -220,7 +222,8 @@ export function binaryEncodeMessage(message, requestType, id = crypto.randomUUID
   return chunks.reduce((acc, cur, index) => {
     const writer = new BitWriter((4 + 16 + 16 + 4) / 8)
 
-    writer.writeBits(1, 4)
+    writer.writeBits(1, 2)
+    writer.writeBits(0, 2)
     writer.writeBits(chunks.length, 16)
     writer.writeBits(index, 16)
     writer.writeBits(TYPE_TO_ID_MAP[requestType], 4)
@@ -240,6 +243,19 @@ export function binaryEncodeMessage(message, requestType, id = crypto.randomUUID
       result
     ]
   }, [])
+}
+
+function binaryToString(reader, len) {
+  const data = new Uint8Array(len)
+
+  for (let i = 0; i < len; i++) {
+    data.set([reader.readBits(8)], i)
+  }
+
+  const decoder = new TextDecoder("utf-8")
+  const content = decoder.decode(data)
+
+  return content
 }
 
 /**
@@ -262,13 +278,17 @@ export function binaryDecodeMessage(message) {
   const reader = new BitReader(message)
 
   // header 
-  const version = reader.readBits(4)
+  const version = reader.readBits(2)
   if (version !== 1) throw new Error("Unknown version received")
+
+  const hasFrags = reader.readBits(2)
 
   const chunks = reader.readBits(16)
   const currentChunk = reader.readBits(16)
   const type = ID_TO_TYPE_MAP[reader.readBits(4)]
   const id = bytesToUuid(reader)
+
+  let fragId = hasFrags ? binaryToString(reader, 10) : null
 
   //body
   const contentBytes = reader.readRemainingBits()
@@ -276,6 +296,6 @@ export function binaryDecodeMessage(message) {
   const decoder = new TextDecoder("utf-8")
   const content = decoder.decode(contentBytes)
 
-  return { chunks, currentChunk, type, id, content }
+  return { chunks, hasFrags, currentChunk, type, id, content, fragId }
 }
 

@@ -121,7 +121,7 @@ defmodule WebRTCMessageDecoder do
   @impl true
   def handle_cast(
         {:receive_message,
-         <<version::4, parts_count::16, index::16, req_type::4, id::binary-size(16),
+         <<version::2, _::2, parts_count::16, index::16, req_type::4, id::binary-size(16),
            rest::binary>>},
         state
       )
@@ -166,7 +166,7 @@ defmodule WebRTCMessageDecoder do
 
   @impl true
   def handle_cast(
-        {:receive_message, <<version::4, _rest::binary>>},
+        {:receive_message, <<version::2, _rest::binary>>},
         state
       )
       when version != @current_version do
@@ -255,7 +255,30 @@ defmodule WebRTCMessageEncoder do
   @part_size 100_000
   @version 1
 
-  def encode_message(header, body, id \\ UUID.uuid4()) do
+  def encode_message(:frag, body, id, frag_id) do
+    text = get_text_content(body)
+
+    req_type = 0
+    parts_count = ceil(bit_size(text) / @part_size)
+    parts = BitUtils.chunks(text, @part_size)
+
+    Enum.with_index(parts)
+    |> Enum.map(fn {part, index} ->
+      bit_head =
+        <<@version::2, 1::2, parts_count::16, index::16, req_type::4,
+          UUIDTools.uuid_to_binary(id)::binary-size(16), frag_id::binary-size(10)>>
+
+      case index == parts_count - 1 do
+        true ->
+          bit_head <> part <> "\r\n"
+
+        false ->
+          bit_head <> part
+      end
+    end)
+  end
+
+  def encode_message(header, body, id) do
     text = get_text_content(header, body)
 
     req_type = Map.get(header, :RequestType) |> Message.Header.request_type_to_int()
@@ -266,7 +289,7 @@ defmodule WebRTCMessageEncoder do
     Enum.with_index(parts)
     |> Enum.map(fn {part, index} ->
       bit_head =
-        <<@version::4, parts_count::16, index::16, req_type::4,
+        <<@version::2, 0::2, parts_count::16, index::16, req_type::4,
           UUIDTools.uuid_to_binary(id)::binary-size(16)>>
 
       bit_head <> part
@@ -298,5 +321,9 @@ defmodule WebRTCMessageEncoder do
       Message.Body.encode_body(body, content_type)
 
     headerText <> bodyText
+  end
+
+  defp get_text_content(body) do
+    Message.Body.encode_body(body, "")
   end
 end
