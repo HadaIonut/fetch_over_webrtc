@@ -3,7 +3,6 @@ import { startConnection, sendMessage, overrideFetch } from "./main.js"
 const WEB_SOCKET_URL = "ws://127.0.0.1:3000/ws"
 overrideFetch()
 
-
 document.querySelector("#connectRoom").addEventListener("click", async () => {
   const roomId = document.querySelector("#roomId").value
 
@@ -38,6 +37,4 @@ document.querySelector("#fileUpload").addEventListener("change", async (event) =
     }
   }))
 })
-
-
 

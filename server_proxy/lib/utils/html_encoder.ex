@@ -7,7 +7,7 @@ defmodule HtmlEncoder do
     appearances =
       Regex.scan(~r/src="(.*?)"/, message)
       |> Enum.reduce(%{}, fn [_, match], acc ->
-        Map.put(acc, match, random_string())
+        Map.put(acc, match, :crypto.hash(:sha, match) |> Base.encode64() |> binary_part(0, 10))
       end)
 
     replaced =

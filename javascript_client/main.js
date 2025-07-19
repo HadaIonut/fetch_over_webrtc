@@ -1,3 +1,4 @@
+import { startDatabase, writeFrags } from "./database.js"
 import * as encoding from "./encoding.js"
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
@@ -7,11 +8,10 @@ import * as encoding from "./encoding.js"
 let dataChannel
 let override = false
 const oldFetch = window.fetch
-
-/** @type(RTCPeerConnection) */
+/** @type{RTCPeerConnection} */
 let peerConnection
-
 let socket
+
 const pending = {}
 
 window.fetch = (url, params = {}, forceWebRTC) => {
@@ -116,23 +116,28 @@ function handleDataChannelMessage(event) {
   const data = event.data
   const { chunks, hasFrags, currentChunk, type, id, content, fragId } = encoding.binaryDecodeMessage(data)
 
-  const [left, right] = content.split("\n---frags---\n")
+  const [textContent, frags] = content.split("\n---frags---\n")
 
-  if (right) {
-    pending[id].parts[currentChunk] = left
+  if (frags) {
+    pending[id].parts[currentChunk] = textContent
     pending[id].parts_done = true
     pending[id].parts_returned = false
 
-    if (right.trim())
-      pending[id].frags.push(right)
+    if (frags.trim()) pending[id].frags.push(frags)
   } else if (!pending[id].parts_done) {
-    pending[id].parts[currentChunk] = left
+    pending[id].parts[currentChunk] = textContent
   } else {
-    if (pending[id].frags[fragId]) pending[id].frags[fragId] += left
-    else pending[id].frags[fragId] = left
+    if (pending[id].frags[fragId]) pending[id].frags[fragId] += textContent
+    else pending[id].frags[fragId] = textContent
 
-    if (left.endsWith("\r\n")) console.log(pending[id].frags[fragId])
+    if (textContent.endsWith("\r\n")) {
+      writeFrags({ content: pending[id].frags[fragId], fragId })
+
+      delete pending[id].frags[fragId]
+    }
   }
+
+  console.log(pending)
 
   pending[id].partsReceived++
   pending[id].type = type
@@ -147,9 +152,12 @@ function handleDataChannelMessage(event) {
   const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
 
   pending[id].res({ header, body })
+
+  if (frags === undefined && !pending[id].parts_done) delete pending[id]
 }
 
 export async function startConnection(roomId, webSocketUrl) {
+  startDatabase()
   await startWebSocket(webSocketUrl)
   await sendJoinRoomMessage(roomId)
   dataChannel = await startDataChannel(roomId)
