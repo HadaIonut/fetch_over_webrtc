@@ -75,38 +75,73 @@ async function handleIceCandidate(candidate) {
   await peerConnection.addIceCandidate(candidateJson)
 }
 
+function decodeSocketMessage(event) {
+  try {
+    return JSON.parse(event.data)
+  } catch (e) {
+    console.log("something went wrong trying to decode: " + event.data)
+    return {}
+  }
+}
+
+function handleSocketMessage(event) {
+  let data = decodeSocketMessage(event)
+
+  if (!pending[data.requestId]) {
+    switch (data.type) {
+      case "userOfferReply":
+        handleUserOfferReply(data.sdpCert)
+        break;
+      case "ICECandidate":
+        handleIceCandidate(data.ICECandidate)
+        break;
+      default:
+        console.log("non response message: ", data)
+        break
+    }
+    return
+  }
+
+  pending[data.requestId].res(data)
+  clearTimeout(pending[data.requestId].timeoutId)
+  delete pending[data.requestId]
+}
+
 async function startWebSocket(url) {
   socket = new WebSocket(url)
-  socket.addEventListener("message", (event) => {
-    let data
-    try {
-      data = JSON.parse(event.data)
-    } catch (e) {
-      console.log("something went wrong trying to decode: " + event.data)
-      return
-    }
-    if (!pending[data.requestId]) {
-      switch (data.type) {
-        case "userOfferReply":
-          handleUserOfferReply(data.sdpCert)
-          break;
-        case "ICECandidate":
-          handleIceCandidate(data.ICECandidate)
-          break;
-        default:
-          console.log("non response message: ", data)
-          break
-      }
-      return
-    }
-    pending[data.requestId].res(data)
-    clearTimeout(pending[data.requestId].timeoutId)
-    delete pending[data.requestId]
-  })
+  socket.addEventListener("message", handleSocketMessage)
 
   await new Promise((res) => {
     socket.addEventListener("open", _ => res())
   })
+}
+
+function updateFrag(pendingId, fragId, textContent) {
+  if (pending[pendingId].frags[fragId]) pending[pendingId].frags[fragId] += textContent
+  else pending[pendingId].frags[fragId] = textContent
+}
+
+function handleFragEnding(pendingId, fragId, textContent) {
+  if (textContent.endsWith("\r\n")) {
+    writeFrags({ content: pending[pendingId].frags[fragId], fragId })
+
+    delete pending[pendingId].frags[fragId]
+    pending[pendingId].rec_frags++
+  }
+}
+
+function isMainMessageDone(pendingId, chunks) {
+  const allChunksReceived = pending[pendingId].partsReceived === chunks
+  const allPartsRecieved = pending[pendingId].parts_done
+  const returnedParts = pending[pendingId].parts_returned
+
+  return allChunksReceived || (allPartsRecieved && returnedParts)
+}
+
+function decodeMainMessage(pendingId) {
+  pending[pendingId].parts_returned = true
+  const [header, body] = encoding.textDecodeMessage(pending[pendingId].parts.join(""))
+  pending[pendingId].res({ header, body })
 }
 
 /**
@@ -114,7 +149,7 @@ async function startWebSocket(url) {
  */
 function handleDataChannelMessage(event) {
   const data = event.data
-  const { chunks, hasFrags, currentChunk, type, id, content, fragId } = encoding.binaryDecodeMessage(data)
+  const { chunks, _, currentChunk, type, id, content, fragId } = encoding.binaryDecodeMessage(data)
 
   const [textContent, frags] = content.split("\n---frags---\n")
 
@@ -129,34 +164,20 @@ function handleDataChannelMessage(event) {
   } else if (!pending[id].parts_done) {
     pending[id].parts[currentChunk] = textContent
   } else {
-    if (pending[id].frags[fragId]) pending[id].frags[fragId] += textContent
-    else pending[id].frags[fragId] = textContent
+    updateFrag(id, fragId, textContent)
 
-    if (textContent.endsWith("\r\n")) {
-      writeFrags({ content: pending[id].frags[fragId], fragId })
-
-      delete pending[id].frags[fragId]
-      pending[id].rec_frags++
-    }
+    handleFragEnding(id, fragId, textContent)
   }
 
   pending[id].partsReceived++
   pending[id].type = type
 
-  const allChunksReceived = pending[id].partsReceived === chunks
-  const allPartsRecieved = pending[id].parts_done
-  const returnedParts = pending[id].parts_returned
+  if (!isMainMessageDone(id, chunks)) return
 
-  if (pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0) return delete pending[id]
-  if (!allChunksReceived && !(allPartsRecieved && returnedParts)) return
+  decodeMainMessage(id)
 
-  pending[id].parts_returned = true
-
-  const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
-
-  pending[id].res({ header, body })
-
-  if (frags === undefined && !pending[id].parts_done) delete pending[id]
+  const fragsDone = pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0
+  if (frags === undefined && !pending[id].parts_done || fragsDone) delete pending[id]
 }
 
 export async function startConnection(roomId, webSocketUrl) {
