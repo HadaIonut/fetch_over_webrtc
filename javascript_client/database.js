@@ -1,4 +1,7 @@
+/** @type(IDBDatabase) */
 let db
+
+const fragListeners = []
 
 export const startDatabase = () => {
   if (db) return
@@ -30,4 +33,21 @@ export const writeFrags = (data) => {
   const objectStore = db.transaction(["frags"], "readwrite").objectStore("frags")
 
   objectStore.add(data)
+
+  fragListeners.forEach(listener => listener(data.fragId))
+}
+
+/** 
+ * @returns {IDBRequest}
+ */
+export const readFrag = (fragId) => {
+  const objectStore = db.transaction(["frags"], "readonly").objectStore("frags")
+  return objectStore.get(fragId)
+}
+
+/**
+ * @type {(fragId: string) => void} callback
+ */
+export const listenForFrag = (callback) => {
+  fragListeners.push(callback)
 }

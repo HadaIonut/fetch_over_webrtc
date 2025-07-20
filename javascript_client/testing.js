@@ -1,4 +1,5 @@
-import { startConnection, sendMessage, overrideFetch } from "./main.js"
+import { startConnection, overrideFetch } from "./main.js"
+import { navigateOverWebRTC } from "./navigation.js"
 
 const WEB_SOCKET_URL = "ws://127.0.0.1:3000/ws"
 overrideFetch()
@@ -8,7 +9,7 @@ document.querySelector("#connectRoom").addEventListener("click", async () => {
 
   await startConnection(roomId, WEB_SOCKET_URL)
 
-  console.log("get echo fetch overriden", await fetch("http://localhost:8080/ping"))
+  setInterval(async () => console.log("get echo fetch overriden", await fetch("http://localhost:8080/ping")), 10000)
 
   console.log("post echo fetch overriden ", await fetch("http://localhost:8080/echo", {
     method: "POST",
@@ -19,8 +20,7 @@ document.querySelector("#connectRoom").addEventListener("click", async () => {
     }
   }))
 
-  console.log("html", await fetch("http://localhost:8080/"))
-
+  console.log("html", await navigateOverWebRTC("http://localhost:8080", {}))
 })
 
 document.querySelector("#fileUpload").addEventListener("change", async (event) => {

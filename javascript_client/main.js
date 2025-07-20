@@ -1,4 +1,4 @@
-import { startDatabase, writeFrags } from "./database.js"
+import { listenForFrag, readFrag, startDatabase, writeFrags } from "./database.js"
 import * as encoding from "./encoding.js"
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
@@ -11,6 +11,7 @@ const oldFetch = window.fetch
 /** @type{RTCPeerConnection} */
 let peerConnection
 let socket
+let currentRoomId
 
 const pending = {}
 
@@ -80,8 +81,9 @@ function decodeSocketMessage(event) {
     return JSON.parse(event.data)
   } catch (e) {
     console.log("something went wrong trying to decode: " + event.data)
-    return {}
   }
+
+  return {}
 }
 
 function handleSocketMessage(event) {
@@ -111,9 +113,7 @@ async function startWebSocket(url) {
   socket = new WebSocket(url)
   socket.addEventListener("message", handleSocketMessage)
 
-  await new Promise((res) => {
-    socket.addEventListener("open", _ => res())
-  })
+  await new Promise((res) => socket.addEventListener("open", _ => res()))
 }
 
 function updateFrag(pendingId, fragId, textContent) {
@@ -122,12 +122,14 @@ function updateFrag(pendingId, fragId, textContent) {
 }
 
 function handleFragEnding(pendingId, fragId, textContent) {
-  if (textContent.endsWith("\r\n")) {
-    writeFrags({ content: pending[pendingId].frags[fragId], fragId })
+  if (!textContent.endsWith("\r\n")) return
 
-    delete pending[pendingId].frags[fragId]
-    pending[pendingId].rec_frags++
-  }
+  writeFrags({
+    content: pending[pendingId].frags[fragId], fragId
+  })
+
+  delete pending[pendingId].frags[fragId]
+  pending[pendingId].rec_frags++
 }
 
 function isMainMessageDone(pendingId, chunks) {
@@ -138,10 +140,10 @@ function isMainMessageDone(pendingId, chunks) {
   return allChunksReceived || (allPartsRecieved && returnedParts)
 }
 
-function decodeMainMessage(pendingId) {
+function decodeMainMessage(pendingId, hasFrags) {
   pending[pendingId].parts_returned = true
   const [header, body] = encoding.textDecodeMessage(pending[pendingId].parts.join(""))
-  pending[pendingId].res({ header, body })
+  pending[pendingId].res({ header, body, hasFrags })
 }
 
 /**
@@ -158,7 +160,7 @@ function handleDataChannelMessage(event) {
     pending[id].parts_done = true
     pending[id].parts_returned = false
 
-    pending[id].expected_frags = pending[id].parts.join("").match(/src="(.*?)"/g).length
+    pending[id].expected_frags = pending[id].parts.join("").match(/WebRTCSrc="(.*?)"/g)?.length ?? 0
 
     if (frags.trim()) pending[id].frags.push(frags)
   } else if (!pending[id].parts_done) {
@@ -174,14 +176,15 @@ function handleDataChannelMessage(event) {
 
   if (!isMainMessageDone(id, chunks)) return
 
-  decodeMainMessage(id)
+  decodeMainMessage(id, !!frags)
 
   const fragsDone = pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0
   if (frags === undefined && !pending[id].parts_done || fragsDone) delete pending[id]
 }
 
 export async function startConnection(roomId, webSocketUrl) {
-  startDatabase()
+  currentRoomId = roomId
+  await startDatabase()
   await startWebSocket(webSocketUrl)
   await sendJoinRoomMessage(roomId)
   dataChannel = await startDataChannel(roomId)
@@ -237,3 +240,5 @@ export async function fetchOverWebRTC(url, params) {
 export function overrideFetch() {
   override = true
 }
+
+
