@@ -117,11 +117,16 @@ function handleDataChannelMessage(event) {
   const { chunks, hasFrags, currentChunk, type, id, content, fragId } = encoding.binaryDecodeMessage(data)
 
   const [textContent, frags] = content.split("\n---frags---\n")
+  let joinedParts = ""
 
   if (frags) {
     pending[id].parts[currentChunk] = textContent
     pending[id].parts_done = true
     pending[id].parts_returned = false
+
+    joinedParts = pending[id].parts.join("")
+
+    pending[id].expected_frags = joinedParts.match(/src="(.*?)"/g).length
 
     if (frags.trim()) pending[id].frags.push(frags)
   } else if (!pending[id].parts_done) {
@@ -134,10 +139,10 @@ function handleDataChannelMessage(event) {
       writeFrags({ content: pending[id].frags[fragId], fragId })
 
       delete pending[id].frags[fragId]
+      pending[id].rec_frags++
+
     }
   }
-
-  console.log(pending)
 
   pending[id].partsReceived++
   pending[id].type = type
@@ -146,10 +151,15 @@ function handleDataChannelMessage(event) {
   const allPartsRecieved = pending[id].parts_done
   const returnedParts = pending[id].parts_returned
 
+  if (pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0) {
+    delete pending[id]
+    return
+  }
   if (!allChunksReceived && !(allPartsRecieved && returnedParts)) return
+
   pending[id].parts_returned = true
 
-  const [header, body] = encoding.textDecodeMessage(pending[id].parts.join(""))
+  const [header, body] = encoding.textDecodeMessage(joinedParts)
 
   pending[id].res({ header, body })
 
@@ -179,7 +189,7 @@ export async function sendMessage(header, body = "") {
 
   return new Promise((res, rej) => {
     const timeoutId = setTimeout(() => rej("timeout"), 10000)
-    pending[requestId] = { res, rej, timeoutId, parts: [], type: "", partsReceived: 0, partsDone: false, frags: {} }
+    pending[requestId] = { res, rej, timeoutId, parts: [], type: "", partsReceived: 0, partsDone: false, frags: {}, expected_frags: 0, rec_frags: 0 }
   })
 }
 
