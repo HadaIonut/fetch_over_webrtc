@@ -28,10 +28,9 @@ function parseScriptSrc(fragId, newScript) {
   return new Promise(res => {
     let intervalId = setInterval(() => {
       readFrag(fragId).onsuccess = (event) => {
-        const result = event.target.result
-        if (!result) return
-        const content = event.target.result.content
-        newScript.textContent = atob(content.split(",")[1])
+        if (!event.target.result) return
+
+        newScript.textContent = atob(event.target.result.content.split(",")[1])
         res()
         clearInterval(intervalId)
       }

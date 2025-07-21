@@ -24,3 +24,4 @@ server_proxy-*.tar
 
 .elixir-tools/
 .elixir-ls/
+lib/javascript_inliner/node_modules
