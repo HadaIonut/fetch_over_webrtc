@@ -23,15 +23,15 @@ defmodule HtmlEncoder do
             end
 
           try do
-            body = Req.get!(url).body
-            IO.inspect(body)
-            IO.inspect(url)
+            res = Req.get!(url)
+            content_type = res.headers["content-type"]
+            body = res.body
             img = body |> Base.encode64()
 
             encoded =
               WebRTCMessageEncoder.encode_message(
                 :frag,
-                img,
+                "data:#{content_type};base64,#{img}",
                 request_id,
                 frag_id
               )

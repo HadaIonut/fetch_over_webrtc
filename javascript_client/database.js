@@ -23,8 +23,9 @@ export const startDatabase = () => {
     request.onerror = (event) => rej(event)
 
     request.onsuccess = (event) => {
-      res()
       db = event.target.result
+      const result = db.transaction(["frags"], "readwrite").objectStore("frags").clear()
+      result.onsuccess = () => res()
     }
   })
 }

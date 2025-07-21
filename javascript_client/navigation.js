@@ -8,11 +8,11 @@ function onFragHanlder(fragId) {
     const elem = document.querySelector(`[WebRTCSrc="__url_replace_${fragId}__"]`)
     if (!elem || elem.nodeName === "SCRIPT") return
     if (elem.nodeName === "LINK") {
-      elem.href = `data:text/css;base64,${content}`
+      elem.href = content
     } else if (elem.nodeName === "SOURCE") {
-      elem.srcset = `data:image/png;base64,${content}`
+      elem.srcset = content
     } else {
-      elem.src = `data:image/png;base64,${content}`
+      elem.src = content
     }
   }
 }
@@ -24,6 +24,21 @@ function handleStyles(doc) {
   }
 }
 
+function parseScriptSrc(fragId, newScript) {
+  return new Promise(res => {
+    let intervalId = setInterval(() => {
+      readFrag(fragId).onsuccess = (event) => {
+        const result = event.target.result
+        if (!result) return
+        const content = event.target.result.content
+        newScript.textContent = atob(content.split(",")[1])
+        res()
+        clearInterval(intervalId)
+      }
+    })
+  })
+}
+
 async function handleScripts(scripts) {
   for (const oldScript of scripts) {
     const newScript = document.createElement('script');
@@ -32,13 +47,7 @@ async function handleScripts(scripts) {
     for (const attr of oldScript.attributes) {
       if (attr.name === "webrtcsrc") {
         const fragId = attr.value.slice(14, 24)
-        await new Promise(res => {
-          readFrag(fragId).onsuccess = (event) => {
-            const content = event.target.result.content
-            newScript.textContent = atob(content)
-            res()
-          }
-        })
+        await parseScriptSrc(fragId, newScript)
         skip = true
       } else {
         newScript.setAttribute(attr.name, attr.value);

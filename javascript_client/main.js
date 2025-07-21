@@ -1,4 +1,4 @@
-import { listenForFrag, readFrag, startDatabase, writeFrags } from "./database.js"
+import { startDatabase, writeFrags } from "./database.js"
 import * as encoding from "./encoding.js"
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
