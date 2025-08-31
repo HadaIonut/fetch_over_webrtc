@@ -1,3 +1,5 @@
+import { pool } from "./main"
+
 /** @type(IDBDatabase) */
 let db
 
@@ -31,11 +33,14 @@ export const startDatabase = () => {
 }
 
 export const writeFrags = (data) => {
-  const objectStore = db.transaction(["frags"], "readwrite").objectStore("frags")
+  // const objectStore = db.transaction(["frags"], "readwrite").objectStore("frags")
 
-  objectStore.add(data)
+  // objectStore.add(data)
 
-  fragListeners.forEach(listener => listener(data.fragId))
+  pool.runTask({ operation: "addToDb", payload: data }).then(() => {
+
+    fragListeners.forEach(listener => listener(data.fragId))
+  })
 }
 
 /** 

@@ -144,10 +144,9 @@ function isMainMessageDone(pendingId, chunks) {
 function decodeMainMessage(pendingId, frags) {
   pending[pendingId].parts_returned = true
 
-  const callbackMessage = `encode_${pendingId}`
-  const taskMessage = { operation: "encode", payload: pending[pendingId].parts, callbackMessage: callbackMessage }
-  pool.runTask(taskMessage).then(({ payload }) => {
-    pending[pendingId].res({ header: payload[0], body: payload[1], hasFrags: !!frags })
+  const taskMessage = { operation: "encode", payload: pending[pendingId].parts }
+  pool.runTask(taskMessage).then(([header, body]) => {
+    pending[pendingId].res({ header, body, hasFrags: !!frags })
 
     const fragsDone = pending[pendingId].rec_frags === pending[pendingId].expected_frags && pending[pendingId].rec_frags !== 0
     if (frags === undefined && !pending[pendingId].parts_done || fragsDone) delete pending[pendingId]
