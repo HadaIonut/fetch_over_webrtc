@@ -1,5 +1,5 @@
-import { BitReader } from "./bitReader.js";
-import { BitWriter } from "./bitWriter.js";
+import { BitReader } from './bitReader.js'
+import { BitWriter } from './bitWriter.js'
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
 /** @typedef {import('./types.d.ts').MultipartBody} MultipartBody*/
@@ -276,7 +276,6 @@ function fastSplit(str, delimiter) {
  */
 export function textDecodeMessage(text) {
   let [header, body] = fastSplit(text, "\r\n")
-  // let [header, body] = text.split("\r\n")
 
   header = decodeTextHeader(header)
   body = decodeBody(body, header.contentType)
@@ -311,4 +310,3 @@ export function binaryDecodeMessage(message) {
 
   return { chunks, hasFrags, currentChunk, type, id, content, fragId }
 }
-

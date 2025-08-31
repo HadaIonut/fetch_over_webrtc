@@ -21,7 +21,7 @@ tmux send-keys "go run ." C-m
 
 tmux new-window  -n "jsServer"
 tmux send-keys "cd ~/projects/fetch_over_webrtc/javascript_client/" C-m
-tmux send-keys "python3 -m http.server 6969" C-m
+tmux send-keys "vite" C-m
 
 tmux select-window -t 0
 

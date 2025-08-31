@@ -1,5 +1,6 @@
 import { startDatabase, writeFrags } from "./database.js"
 import * as encoding from "./encoding.js"
+import { WorkerPool } from "./workerPool.js"
 /** @typedef {import('./types.d.ts').Header} Header */
 /** @typedef {import('./types.d.ts').Body} Body */
 /** @typedef {import('./types.d.ts').FetchMockParams} FetchMockParams */
@@ -143,13 +144,10 @@ function isMainMessageDone(pendingId, chunks) {
 function decodeMainMessage(pendingId, hasFrags) {
   pending[pendingId].parts_returned = true
 
-  let fullEncodedMessage = ""
-  for (let i = 0; i < pending[pendingId].parts.length; i++) {
-    fullEncodedMessage += pending[pendingId].parts[i]
-  }
-  const [header, body] = encoding.textDecodeMessage(fullEncodedMessage)
-
-  pending[pendingId].res({ header, body, hasFrags })
+  const callbackMessage = `encode_${pendingId}`
+  pool.runTask({ operation: "encode", payload: pending[pendingId].parts, callbackMessage: callbackMessage }).then(({ payload }) => {
+    pending[pendingId].res({ header: payload[0], body: payload[1], hasFrags })
+  })
 }
 
 /**
@@ -185,7 +183,7 @@ function handleDataChannelMessage(event) {
   decodeMainMessage(id, !!frags)
 
   const fragsDone = pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0
-  if (frags === undefined && !pending[id].parts_done || fragsDone) delete pending[id]
+  // if (frags === undefined && !pending[id].parts_done || fragsDone) delete pending[id]
 }
 
 export async function startConnection(roomId, webSocketUrl) {
@@ -247,4 +245,5 @@ export function overrideFetch() {
   override = true
 }
 
+export const pool = new WorkerPool(Math.min(navigator.hardwareConcurrency, 4), "./worker.js")
 
