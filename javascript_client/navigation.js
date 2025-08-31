@@ -2,10 +2,12 @@ import { listenForFrag, readFrag } from "./database.js"
 import { fetchOverWebRTC } from "./main.js"
 
 function onFragHanlder(fragId) {
-  readFrag(fragId).onsuccess = (event) => {
+  const fragReq = readFrag(fragId)
+
+  fragReq.onsuccess = (event) => {
     const content = event.target.result.content
 
-    const elem = document.querySelector(`[WebRTCSrc="__url_replace_${fragId}__"]`)
+    const elem = document.querySelector(`[webrtcsrc="__url_replace_${fragId}__"]`)
     if (!elem || elem.nodeName === "SCRIPT") return
     if (elem.nodeName === "LINK") {
       elem.href = content
@@ -15,6 +17,7 @@ function onFragHanlder(fragId) {
       elem.src = content
     }
   }
+  fragReq.onerror = (err) => console.log("big nono", err)
 }
 
 function handleStyles(doc) {
@@ -60,6 +63,7 @@ async function handleScripts(scripts) {
 }
 
 export async function navigateOverWebRTC(url, params = {}, useURL = false) {
+  listenForFrag(onFragHanlder)
   const result = await fetchOverWebRTC(url, params)
   const html = result.body
   const parser = new DOMParser()
@@ -79,5 +83,4 @@ export async function navigateOverWebRTC(url, params = {}, useURL = false) {
 
     history.pushState({}, '', `/${currentRoomId}/${path}`)
   }
-  listenForFrag(onFragHanlder)
 }

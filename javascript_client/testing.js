@@ -20,7 +20,7 @@ document.querySelector("#connectRoom").addEventListener("click", async () => {
     }
   }))
 
-  console.log("html", await navigateOverWebRTC("http://localhost:8080", {}))
+  console.log("html", await navigateOverWebRTC("http://brave.com", {}))
 })
 
 document.querySelector("#fileUpload").addEventListener("change", async (event) => {

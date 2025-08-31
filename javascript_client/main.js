@@ -142,7 +142,13 @@ function isMainMessageDone(pendingId, chunks) {
 
 function decodeMainMessage(pendingId, hasFrags) {
   pending[pendingId].parts_returned = true
-  const [header, body] = encoding.textDecodeMessage(pending[pendingId].parts.join(""))
+
+  let fullEncodedMessage = ""
+  for (let i = 0; i < pending[pendingId].parts.length; i++) {
+    fullEncodedMessage += pending[pendingId].parts[i]
+  }
+  const [header, body] = encoding.textDecodeMessage(fullEncodedMessage)
+
   pending[pendingId].res({ header, body, hasFrags })
 }
 

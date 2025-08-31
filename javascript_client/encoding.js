@@ -258,12 +258,25 @@ function binaryToString(reader, len) {
   return content
 }
 
+function fastSplit(str, delimiter) {
+  const idx = str.indexOf(delimiter);
+  if (idx === -1) {
+    return [str];
+  }
+  return [
+    str.slice(0, idx),
+    str.slice(idx + delimiter.length)
+  ];
+}
+
+
 /**
  * @param {string} text - text to be decoded 
  * @returns {[Header, Body]}
  */
 export function textDecodeMessage(text) {
-  let [header, body] = text.split("\r\n")
+  let [header, body] = fastSplit(text, "\r\n")
+  // let [header, body] = text.split("\r\n")
 
   header = decodeTextHeader(header)
   body = decodeBody(body, header.contentType)

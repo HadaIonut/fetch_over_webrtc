@@ -49,8 +49,8 @@ export class BitReader {
     const remainingBytes = remaining / 8
     const output = new Uint8Array(remainingBytes)
     for (let i = 0; i < remainingBytes; i++) {
-      const bits = this.readBits(8)
-      output.set([bits], i)
+      output[i] = this.buffer[this.bytePos]
+      this.bytePos += 1
     }
     return output
   }

@@ -1,4 +1,6 @@
 defmodule HtmlEncoder do
+  require Logger
+
   def random_string() do
     for _ <- 1..10, into: "", do: <<Enum.random(~c'0123456789abcdef')>>
   end
@@ -12,8 +14,6 @@ defmodule HtmlEncoder do
 
   defp create_response_payload(url, res, request_id, frag_id) do
     content_type = res.headers["content-type"]
-
-    IO.inspect(content_type)
 
     body =
       case Enum.at(content_type, 0) |> String.contains?("javascript") do
@@ -51,19 +51,19 @@ defmodule HtmlEncoder do
         ExWebRTC.PeerConnection.send_data(peer_connection, data_channel, part, :binary)
       end)
     rescue
-      error -> raise "this url is being stupid #{url}, #{error}"
+      error -> IO.inspect("this url is being stupid #{url}")
     end
   end
 
   def encode(route, message, request_id, peer_connection, data_channel) do
     appearances =
-      Regex.scan(~r/(?:(?:src)|(?:href))="(.*?)"/, message)
+      Regex.scan(~r/(?:(?:src)|(?:href)|(?:srcset))="(.*?)"/, message)
       |> Enum.reduce(%{}, fn [_, match], acc ->
         Map.put(acc, match, :crypto.hash(:sha, match) |> Base.encode64() |> binary_part(0, 10))
       end)
 
     replaced =
-      Regex.replace(~r/(?:(?:src)|(?:href))="(.*?)"/, message, fn _, match ->
+      Regex.replace(~r/(?:(?:src)|(?:href)|(?:srcset))="(.*?)"/, message, fn _, match ->
         frag_id = Map.get(appearances, match)
         replace_text = "__url_replace_#{frag_id}__"
 
