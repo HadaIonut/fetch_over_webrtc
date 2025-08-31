@@ -141,12 +141,16 @@ function isMainMessageDone(pendingId, chunks) {
   return allChunksReceived || (allPartsRecieved && returnedParts)
 }
 
-function decodeMainMessage(pendingId, hasFrags) {
+function decodeMainMessage(pendingId, frags) {
   pending[pendingId].parts_returned = true
 
   const callbackMessage = `encode_${pendingId}`
-  pool.runTask({ operation: "encode", payload: pending[pendingId].parts, callbackMessage: callbackMessage }).then(({ payload }) => {
-    pending[pendingId].res({ header: payload[0], body: payload[1], hasFrags })
+  const taskMessage = { operation: "encode", payload: pending[pendingId].parts, callbackMessage: callbackMessage }
+  pool.runTask(taskMessage).then(({ payload }) => {
+    pending[pendingId].res({ header: payload[0], body: payload[1], hasFrags: !!frags })
+
+    const fragsDone = pending[pendingId].rec_frags === pending[pendingId].expected_frags && pending[pendingId].rec_frags !== 0
+    if (frags === undefined && !pending[pendingId].parts_done || fragsDone) delete pending[pendingId]
   })
 }
 
@@ -180,10 +184,7 @@ function handleDataChannelMessage(event) {
 
   if (!isMainMessageDone(id, chunks)) return
 
-  decodeMainMessage(id, !!frags)
-
-  const fragsDone = pending[id].rec_frags === pending[id].expected_frags && pending[id].rec_frags !== 0
-  // if (frags === undefined && !pending[id].parts_done || fragsDone) delete pending[id]
+  decodeMainMessage(id, frags)
 }
 
 export async function startConnection(roomId, webSocketUrl) {
